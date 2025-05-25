@@ -22,7 +22,7 @@ class AgentTemplate(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    agent_instances = relationship("AgentInstance", back_populates="template")
+    agent_instances = relationship("AgentInstance", back_populates="template", cascade="all, delete-orphan")
 
 
 class AgentInstance(Base):
@@ -40,3 +40,6 @@ class AgentInstance(Base):
     # Relationships
     template = relationship("AgentTemplate", back_populates="agent_instances")
     scenario_run = relationship("ScenarioRun", back_populates="agent_instances")
+    logs = relationship("ExecutionLog", back_populates="agent_instance", cascade="all, delete-orphan")
+    sent_events = relationship("EventInstance", foreign_keys="[EventInstance.source_agent_id]", back_populates="source_agent", cascade="all, delete-orphan")
+    received_events = relationship("EventInstance", foreign_keys="[EventInstance.target_agent_id]", back_populates="target_agent", cascade="all, delete-orphan")

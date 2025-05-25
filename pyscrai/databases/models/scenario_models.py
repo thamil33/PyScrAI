@@ -22,7 +22,7 @@ class ScenarioTemplate(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    scenario_runs = relationship("ScenarioRun", back_populates="template")
+    scenario_runs = relationship("ScenarioRun", back_populates="template", cascade="all, delete-orphan")
 
 
 class ScenarioRun(Base):
@@ -41,5 +41,6 @@ class ScenarioRun(Base):
     
     # Relationships
     template = relationship("ScenarioTemplate", back_populates="scenario_runs")
-    agent_instances = relationship("AgentInstance", back_populates="scenario_run")
-    events = relationship("EventInstance", back_populates="scenario_run")
+    agent_instances = relationship("AgentInstance", back_populates="scenario_run", cascade="all, delete-orphan")
+    events = relationship("EventInstance", back_populates="scenario_run", cascade="all, delete-orphan")
+    logs = relationship("ExecutionLog", back_populates="scenario_run", cascade="all, delete-orphan")

@@ -13,6 +13,8 @@ from pyscrai.databases import init_database, get_db_session
 from pyscrai.databases.models.schemas import AgentTemplateCreate, ScenarioTemplateCreate
 from pyscrai.factories.template_manager import TemplateManager
 from pyscrai.utils.config import Config
+from alembic.config import Config as AlembicConfig
+from alembic import command
 
 
 def load_agent_template_from_file(file_path: Path) -> AgentTemplateCreate:
@@ -38,8 +40,18 @@ def setup_database():
     
     # Initialize database
     print("Initializing database schema...")
-    init_database()
-    print("✓ Database schema created")
+    # init_database() # This will be handled by Alembic migrations
+    # print("✓ Database schema created")
+
+    # Apply Alembic migrations
+    print("Applying database migrations...")
+    alembic_cfg = AlembicConfig(str(Path(__file__).parent / "pyscrai" / "databases" / "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", str(Path(__file__).parent / "pyscrai" / "databases" / "alembic"))
+    # Construct the correct path to the database file for sqlalchemy.url
+    db_path = Config.DATA_DIR / 'pyscrai.db'
+    alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path.resolve()}")
+    command.upgrade(alembic_cfg, "head")
+    print("✓ Database migrations applied")
     
     # Load sample templates
     db = get_db_session()

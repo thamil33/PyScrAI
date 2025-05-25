@@ -2,8 +2,8 @@
 from typing import Optional, Any, Dict
 
 # Import Agno's specific model classes
-from agno_src.models.openrouter import OpenRouter as AgnoOpenRouter
-from agno_src.models.lmstudio import LMStudio as AgnoLMStudio
+from agno.models.openrouter import OpenRouter as AgnoOpenRouter
+from agno.models.lmstudio import LMStudio as AgnoLMStudio
 # Import the global settings instance from your config.py
 from pyscrai.utils.config import settings
 

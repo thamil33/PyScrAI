@@ -35,3 +35,5 @@ class EventInstance(Base):
     # Relationships
     scenario_run = relationship("ScenarioRun", back_populates="events")
     event_type = relationship("EventType")
+    source_agent = relationship("AgentInstance", foreign_keys=[source_agent_id], back_populates="sent_events")
+    target_agent = relationship("AgentInstance", foreign_keys=[target_agent_id], back_populates="received_events")

@@ -4,6 +4,7 @@ Logging-related database models
 
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Text, JSON, ForeignKey
+from sqlalchemy.orm import relationship
 from .base import Base
 
 
@@ -18,3 +19,7 @@ class ExecutionLog(Base):
     message = Column(Text)
     data = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    scenario_run = relationship("ScenarioRun", back_populates="logs")
+    agent_instance = relationship("AgentInstance", back_populates="logs")
