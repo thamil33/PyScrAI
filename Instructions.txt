@@ -15,8 +15,8 @@ ScrAI is a simulation engine for AI-powered actors with cognitive cores, built o
 ### Agno Framework
 - `agno` - Main Agno agent framework integration for AI-powered agents
 
-- `agno\models\lmstudio` - Integration for LM Studio language models
-- `agno\models\openrouter` - Integration for OpenRouter language models
+- `agno\libs\agno\agno\models\lmstudio` - Integration for LM Studio language models
+- `agno\libs\agno\agno\models\openrouter` - Integration for OpenRouter language models
 
 ## Dependencies
 Managed via UV with `pyproject.toml` configuration.

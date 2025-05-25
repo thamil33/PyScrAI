@@ -1,5 +1,5 @@
 # See https://help.github.com/ignore-files/ for more about ignoring files.
-
+agno
 .DS_Store
 
 # Python cache
@@ -16,6 +16,7 @@
 .idea
 .vscode
 *.code-workspace
+# __init__.py
 
 # Ignore .env files
 .env
