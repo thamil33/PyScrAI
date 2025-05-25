@@ -1,7 +1,6 @@
 # See https://help.github.com/ignore-files/ for more about ignoring files.
-agno
 .DS_Store
-
+infra
 # Python cache
 .mypy_cache
 *__pycache__*
@@ -65,3 +64,10 @@ token.json
 # Coverage
 coverage_report
 .coverage
+
+**/agno_repository/scripts
+**/agno_repository/libs/agno/scripts
+**/agno_repository/libs/agno/tests
+**/agno_repository/ango_my_examples
+**/agno_repository/cookbook
+.editorconfig

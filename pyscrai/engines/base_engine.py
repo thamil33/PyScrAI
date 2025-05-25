@@ -4,10 +4,10 @@ Abstract base class for all PyScrAI engines
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
-from agno.agent import Agent
-from agno.models.openrouter import OpenRouter
-from agno.models.lmstudio import LMStudio
-from agno.storage.sqlite import SqliteStorage
+from agno_src.agent import Agent
+from agno_src.models.openrouter import OpenRouter
+from agno_src.models.lmstudio import LMStudio
+from agno_src.storage.sqlite import SqliteStorage
 import asyncio
 import json
 

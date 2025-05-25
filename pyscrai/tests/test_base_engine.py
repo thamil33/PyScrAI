@@ -2,7 +2,7 @@ from engines.base_engine import BaseEngine
 
 from typing import Optional, List, Dict, Any
 from pyscrai.llm_factory import get_agno_llm_instance
-from agno.agent import Agent as AgnoAgent # Assuming this is the correct import for Agno's Agent
+from agno_src.agent import Agent as AgnoAgent # Assuming this is the correct import for Agno's Agent
 
 # Example of how a specialized engine might inherit from BaseEngine:
 
