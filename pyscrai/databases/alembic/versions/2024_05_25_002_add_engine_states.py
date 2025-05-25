@@ -32,15 +32,14 @@ def upgrade() -> None:
     op.add_column('event_instances', sa.Column('retry_count', sa.Integer(), nullable=False, server_default='0'))
     op.add_column('event_instances', sa.Column('last_error', sa.String(), nullable=True))
     op.add_column('event_instances', sa.Column('next_retry_time', sa.DateTime(), nullable=True))
-    
-    # Create new engine_states table
+      # Create new engine_states table
     op.create_table('engine_states',
         sa.Column('id', sa.String(), nullable=False),  # UUID as string
         sa.Column('engine_type', sa.String(), nullable=False),
         sa.Column('status', sa.String(), nullable=False),
         sa.Column('last_heartbeat', sa.DateTime(), nullable=True),
         sa.Column('current_workload', sa.Integer(), nullable=False, server_default='0'),
-        sa.Column('metadata', sa.JSON(), nullable=True),
+        sa.Column('engine_metadata', sa.JSON(), nullable=True),
         sa.PrimaryKeyConstraint('id')
     )
     

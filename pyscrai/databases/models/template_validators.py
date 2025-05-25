@@ -3,7 +3,7 @@ Enhanced Pydantic models for template validation
 """
 
 from typing import Dict, List, Optional, Union, Any
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from enum import Enum
 
 
@@ -28,8 +28,9 @@ class LLMConfig(BaseModel):
     frequency_penalty: Optional[float] = Field(None, ge=-2.0, le=2.0)
     presence_penalty: Optional[float] = Field(None, ge=-2.0, le=2.0)
 
-    @validator('model_id')
-    def validate_model_id(cls, v, values):
+    @field_validator('model_id')
+    @classmethod
+    def validate_model_id(cls, v):
         if not v:
             raise ValueError("model_id cannot be empty")
         return v
@@ -51,7 +52,8 @@ class PersonalityConfig(BaseModel):
     instructions: List[str] = Field(default_factory=list)
     constraints: List[str] = Field(default_factory=list)
 
-    @validator('role')
+    @field_validator('role')
+    @classmethod
     def validate_role(cls, v):
         if not v.strip():
             raise ValueError("role cannot be empty")
@@ -100,7 +102,8 @@ class AgentTemplateValidator(BaseModel):
     llm_config: LLMConfig
     tools_config: Dict[str, ToolConfig] = Field(default_factory=dict)
 
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_name(cls, v):
         if not v.strip():
             raise ValueError("name cannot be empty")
@@ -115,13 +118,15 @@ class ScenarioTemplateValidator(BaseModel):
     agent_roles: Dict[str, AgentRole]
     event_flow: Dict[str, EventDefinition]
 
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_name(cls, v):
         if not v.strip():
             raise ValueError("name cannot be empty")
         return v
 
-    @validator('agent_roles')
+    @field_validator('agent_roles')
+    @classmethod
     def validate_agent_roles(cls, v):
         if not v:
             raise ValueError("at least one agent role must be defined")

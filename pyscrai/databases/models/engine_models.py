@@ -16,7 +16,7 @@ class EngineState(Base):
     status = Column(String, nullable=False, index=True)  # active, idle, error
     last_heartbeat = Column(DateTime)
     current_workload = Column(Integer, nullable=False, default=0)
-    metadata = Column(JSON)  # Configuration and dynamic state
+    engine_metadata = Column(JSON)  # Configuration and dynamic state
     
     @property
     def static_config(self):
