@@ -12,6 +12,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from pyscrai.databases import init_database, get_db_session
 from pyscrai.databases.models.schemas import AgentTemplateCreate, ScenarioTemplateCreate
 from pyscrai.factories.template_manager import TemplateManager
+from pyscrai.databases.seeds.seed_data import CoreSystemData
 from pyscrai.utils.config import Config
 from alembic.config import Config as AlembicConfig
 from alembic import command
@@ -31,6 +32,19 @@ def load_scenario_template_from_file(file_path: Path) -> ScenarioTemplateCreate:
     return ScenarioTemplateCreate(**data)
 
 
+def setup_core_data(session):
+    """Set up core system data"""
+    print("\nLoading core system data...")
+    core_data = CoreSystemData()
+    
+    # Load and validate system event types
+    event_types = core_data.load_system_event_types()
+    print(f"✓ Loaded {len(event_types)} system event types")
+    
+    # Here we can add more core data loading as needed
+    return event_types
+
+
 def setup_database():
     """Initialize database and load sample templates"""
     print("Setting up PyScrAI database...")
@@ -41,18 +55,38 @@ def setup_database():
     # Initialize database
     print("Initializing database schema...")
     # init_database() # This will be handled by Alembic migrations
-    # print("✓ Database schema created")
+    # print("✓ Database schema created")    # Check if database exists
+    db_path = Config.DATA_DIR / 'pyscrai.db'
+    db_exists = db_path.exists()
 
     # Apply Alembic migrations
-    print("Applying database migrations...")
+    print("Checking database status...")
     alembic_cfg = AlembicConfig(str(Path(__file__).parent / "pyscrai" / "databases" / "alembic.ini"))
     alembic_cfg.set_main_option("script_location", str(Path(__file__).parent / "pyscrai" / "databases" / "alembic"))
-    # Construct the correct path to the database file for sqlalchemy.url
-    db_path = Config.DATA_DIR / 'pyscrai.db'
     alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path.resolve()}")
-    command.upgrade(alembic_cfg, "head")
-    print("✓ Database migrations applied")
     
+    try:
+        if db_exists:
+            print("Database exists, stamping current version...")
+            command.stamp(alembic_cfg, "head")
+            print("✓ Database version stamped")
+        else:
+            print("Creating new database and applying migrations...")
+            command.upgrade(alembic_cfg, "head")
+            print("✓ Database schema initialized")
+    except Exception as e:
+        if "table already exists" in str(e) or "already exists" in str(e):
+            print("Database already initialized, continuing with setup...")
+        else:
+            raise
+
+    # Load core system data
+    db = get_db_session()
+    try:
+        setup_core_data(db)
+    finally:
+        db.close()
+
     # Load sample templates
     db = get_db_session()
     try:

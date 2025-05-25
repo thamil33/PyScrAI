@@ -47,7 +47,6 @@ This document outlines the immediate next steps for PyScrAI database development
 ## 4. Enhance Template Validation System
 
 **Objective:** Ensure the integrity and correctness of agent and scenario templates beyond basic Pydantic schema validation.
-
 **Tasks:**
 - Review the structure of JSON fields within `AgentTemplate` (`personality_config`, `llm_config`, `tools_config`) and `ScenarioTemplate` (`config`, `agent_roles`, `event_flow`).
 - Identify key-value pairs or structures within these JSON blobs that require specific validation rules (e.g., presence of certain keys, data types, valid enum values).

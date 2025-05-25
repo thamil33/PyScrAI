@@ -1,0 +1,77 @@
+[
+    {
+        "name": "agent_message",
+        "description": "Message sent from one agent to another",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string"},
+                "from_agent": {"type": "string"},
+                "to_agent": {"type": "string"}
+            },
+            "required": ["content", "from_agent", "to_agent"]
+        },
+        "category": "agent",
+        "is_core": true
+    },
+    {
+        "name": "scenario_update",
+        "description": "Update to scenario state or progress",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "turn": {"type": "integer"},
+                "data": {"type": "object"}
+            },
+            "required": ["status"]
+        },
+        "category": "scenario",
+        "is_core": true
+    },
+    {
+        "name": "error_occurred",
+        "description": "System or runtime error event",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "error_type": {"type": "string"},
+                "message": {"type": "string"},
+                "stack_trace": {"type": "string"}
+            },
+            "required": ["error_type", "message"]
+        },
+        "category": "system",
+        "is_core": true
+    },
+    {
+        "name": "system_notification",
+        "description": "General system notification or broadcast message",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "level": {"type": "string", "enum": ["info", "warning", "error"]},
+                "message": {"type": "string"},
+                "metadata": {"type": "object"}
+            },
+            "required": ["level", "message"]
+        },
+        "category": "system",
+        "is_core": true
+    },
+    {
+        "name": "user_input",
+        "description": "Input or interaction from a user",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "input_type": {"type": "string"},
+                "content": {"type": "string"},
+                "metadata": {"type": "object"}
+            },
+            "required": ["input_type", "content"]
+        },
+        "category": "user",
+        "is_core": true
+    }
+]

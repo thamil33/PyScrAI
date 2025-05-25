@@ -112,7 +112,7 @@ class ScenarioRunResponse(BaseModel):
 class EventTypeCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    schema: Dict[str, Any] = {}
+    data_schema: Dict[str, Any] = {}
 
 
 class EventTypeResponse(BaseModel):
@@ -121,7 +121,7 @@ class EventTypeResponse(BaseModel):
     id: int
     name: str
     description: Optional[str]
-    schema: Dict[str, Any]
+    data_schema: Dict[str, Any]
     created_at: datetime
 
 

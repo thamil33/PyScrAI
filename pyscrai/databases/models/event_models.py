@@ -15,7 +15,7 @@ class EventType(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False, unique=True)
     description = Column(Text)
-    schema = Column(JSON)  # JSON schema for event data
+    data_schema = Column(JSON)  # JSON schema for event data
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
