@@ -16,6 +16,8 @@ class EventType(Base):
     name = Column(String(100), nullable=False, unique=True)
     description = Column(Text)
     data_schema = Column(JSON)  # JSON schema for event data
+    category = Column(String)  # Category of event (e.g., 'system', 'agent', 'scenario')
+    engine_type = Column(String)  # Type of engine that can process this event
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -29,7 +31,14 @@ class EventInstance(Base):
     source_agent_id = Column(Integer, ForeignKey("agent_instances.id"))
     target_agent_id = Column(Integer, ForeignKey("agent_instances.id"), nullable=True)
     data = Column(JSON)
-    processed = Column(Boolean, default=False)
+    processed_by_engines = Column(JSON)  # List of engine IDs that processed this event
+    priority = Column(Integer, default=0)  # Event processing priority
+    status = Column(String, nullable=False, default='queued')  # queued, processing, completed, failed
+    lock_until = Column(DateTime)  # Lock expiration timestamp
+    locked_by = Column(String)  # ID of engine instance holding the lock
+    retry_count = Column(Integer, nullable=False, default=0)
+    last_error = Column(String)
+    next_retry_time = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships

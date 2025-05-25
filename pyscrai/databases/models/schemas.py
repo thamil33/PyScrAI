@@ -3,8 +3,8 @@ Pydantic schemas for API validation and serialization
 """
 
 from datetime import datetime
-from typing import Optional, Dict, Any
-from pydantic import BaseModel, ConfigDict
+from typing import Optional, Dict, Any, List
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # Agent Template Schemas
@@ -164,3 +164,70 @@ class ExecutionLogResponse(BaseModel):
     message: str
     data: Dict[str, Any]
     timestamp: datetime
+
+
+# Engine Management Schemas
+class EngineRegistration(BaseModel):
+    """Schema for engine instance registration"""
+    engine_type: str = Field(..., description="Type of engine (actor/narrator/analyst)")
+    capabilities: List[str] = Field(default_factory=list, description="List of engine capabilities")
+    resource_limits: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Resource limits for the engine instance"
+    )
+
+
+class EngineHeartbeat(BaseModel):
+    """Schema for engine heartbeat updates"""
+    status: str = Field(..., description="Current engine status")
+    current_workload: int = Field(..., description="Number of events currently being processed")
+    resource_utilization: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Current resource usage metrics"
+    )
+
+
+class EngineStateResponse(BaseModel):
+    """Schema for engine state responses"""
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: str
+    engine_type: str
+    status: str
+    last_heartbeat: Optional[datetime]
+    current_workload: int
+    metadata: Dict[str, Any]
+
+
+# Event Processing Schemas
+class EventQueueRequest(BaseModel):
+    """Schema for requesting events from the queue"""
+    engine_type: str
+    batch_size: int = Field(default=3, ge=1, le=10)
+    capabilities: List[str] = Field(default_factory=list)
+
+
+class EventStatusUpdate(BaseModel):
+    """Schema for updating event status"""
+    status: str = Field(..., description="new status (completed/failed)")
+    result: Optional[Dict[str, Any]] = Field(
+        None, 
+        description="Processing result for completed events"
+    )
+    error: Optional[str] = Field(
+        None,
+        description="Error message for failed events"
+    )
+
+
+class QueuedEventResponse(BaseModel):
+    """Schema for events returned from the queue"""
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    event_type_id: int
+    event_type: str
+    priority: int
+    data: Dict[str, Any]
+    lock_until: datetime
+    retry_count: int
