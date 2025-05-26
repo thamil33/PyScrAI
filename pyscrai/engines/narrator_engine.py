@@ -30,6 +30,27 @@ class NarratorEngine(BaseEngine):
                                          (e.g., "omniscient, descriptive",
                                          "first-person, mysterious").
     """
+    async def initialize(self, register_with_server: bool = True) -> None:
+        """
+        Initializes the NarratorEngine, including the underlying Agno agent
+        and its narrative style configuration.
+
+        Args:
+            register_with_server (bool): Whether to register the engine with the server.
+        """
+        if self.initialized:
+            self.logger.info(f"NarratorEngine '{self.engine_name}' already initialized.")
+            return
+
+        # Call the parent's initialize method, passing the argument
+        await super().initialize(register_with_server=register_with_server)
+        
+        if self.agent:
+            self._configure_agent_style() # Ensure this method exists and is correctly named
+            self.logger.info(f"NarratorEngine '{self.engine_name}' fully initialized.")
+        else:
+            self.logger.error(f"Agent not initialized in BaseEngine for NarratorEngine '{self.engine_name}'. Narrative style not configured.")
+        # self.initialized is set by BaseEngine
 
     def __init__(
         self,

@@ -8,7 +8,7 @@ Agno Agent for LLM interactions, configured with an analytical focus.
 """
 import asyncio
 import logging
-import json
+import json 
 import os
 from typing import Any, Dict, List, Optional
 
@@ -32,6 +32,28 @@ class AnalystEngine(BaseEngine):
                                           specific focus or the types of
                                           patterns it should look for.
     """
+    
+    async def initialize(self, register_with_server: bool = True) -> None:
+        """
+        Initializes the AnalystEngine, including the underlying Agno agent
+        and its analytical configuration.
+
+        Args:
+            register_with_server (bool): Whether to register the engine with the server.
+        """
+        if self.initialized:
+            self.logger.info(f"AnalystEngine '{self.engine_name}' already initialized.")
+            return
+
+        # Call the parent's initialize method, passing the argument
+        await super().initialize(register_with_server=register_with_server)
+        
+        if self.agent:
+            self._configure_agent_for_analysis() # Ensure this method exists and is correctly named
+            self.logger.info(f"AnalystEngine '{self.engine_name}' fully initialized.")
+        else:
+            self.logger.error(f"Agent not initialized in BaseEngine for AnalystEngine '{self.engine_name}'. Analysis focus not configured.")
+        # self.initialized is set by BaseEngine
 
     def __init__(
         self,
@@ -74,16 +96,19 @@ class AnalystEngine(BaseEngine):
         
         logger.info(f"AnalystEngine '{self.engine_name}' configured with focus: '{self.analytical_focus}'. Call initialize() to activate.")
 
-    async def initialize(self) -> None:
+    async def initialize(self, register_with_server: bool = True) -> None: 
         """
         Initializes the AnalystEngine, including the underlying Agno agent
         and its analytical configuration.
+
+        Args:
+            register_with_server (bool): Whether to register the engine with the server.
         """
         if self.initialized:
             logger.info(f"AnalystEngine '{self.engine_name}' already initialized.")
             return
 
-        await super().initialize() # Creates and initializes self.agent
+        await super().initialize(register_with_server=register_with_server) 
         
         if self.agent:
             self._configure_agent_for_analysis()
@@ -134,14 +159,6 @@ class AnalystEngine(BaseEngine):
         Returns:
             List[Any]: An empty list of tools.
         """
-        # Example: If analysts had tools for data processing
-        # from agno.tools.function import FunctionTool
-        # def simple_data_aggregator(data: List[Dict[str, Any]], group_by_key: str, aggregate_key: str) -> Dict[str, Any]:
-        #     """Aggregates data based on a key."""
-        #     #簡易的な実装例
-        #     pass 
-        # data_aggregator_tool = FunctionTool(fn=simple_data_aggregator)
-        # return [data_aggregator_tool]
         logger.debug(f"AnalystEngine '{self.engine_name}' setup tools: None")
         return []
 
@@ -171,9 +188,6 @@ class AnalystEngine(BaseEngine):
             logger.warning("No 'data_to_analyze' found in event_payload for AnalystEngine.")
             return {"content": None, "error": "No data_to_analyze provided in event payload"}
 
-        # Convert data_to_analyze to string if it's not already, as LLMs primarily work with text.
-        # More sophisticated handling (e.g. for JSON or CSV data) might involve specific formatting
-        # or summarization if the data is very large.
         if isinstance(data_to_analyze, (dict, list)):
             try:
                 data_to_analyze_str = json.dumps(data_to_analyze, indent=2)
@@ -182,14 +196,13 @@ class AnalystEngine(BaseEngine):
         else:
             data_to_analyze_str = str(data_to_analyze)
             
-        # The analytical approach is guided by the agent's system message.
         message_to_agent = f"Please analyze the following data based on your configured focus:\n\n---\nDATA START\n---\n{data_to_analyze_str}\n---\nDATA END\n---\n\nProvide your insights and findings."
 
         try:
             response: Optional[RunResponse] = await self.agent.arun(message=message_to_agent, **kwargs)
             
             if response and response.content:
-                logger.debug(f"{self.engine_name} raw analysis response: {response.content[:200]}...") # Log snippet
+                logger.debug(f"{self.engine_name} raw analysis response: {response.content[:200]}...") 
                 return {"content": response.content, "error": None}
             else:
                 logger.warning(f"{self.engine_name} produced no content in analysis response.")
@@ -201,20 +214,25 @@ class AnalystEngine(BaseEngine):
 async def main_analyst_example():
     """Example usage of the AnalystEngine."""
     if not os.getenv("OPENAI_API_KEY") and not os.getenv("OPENROUTER_API_KEY"):
-        print("Error: OPENAI_API_KEY or OPENROUTER_API_KEY not found.")
-        return
+        # Note: For OpenRouter, OPENROUTER_API_KEY is the primary env var.
+        # OPENAI_API_KEY might be checked by some underlying libraries if not careful,
+        # but for OpenRouter provider, OPENROUTER_API_KEY is what Agno's OpenRouter model uses.
+        # If using a free model, the key might not be strictly validated for all free models,
+        # but it's good practice to have it set (even to a dummy value like "<y_bin_235>" for some free tiers).
+        logger.warning("OPENROUTER_API_KEY (or OPENAI_API_KEY as a fallback for some tools) not found. Free models might work without it, but it's recommended to set it.")
+        # For OpenRouter free tiers, often any non-empty string is fine for OPENROUTER_API_KEY
+        # For this example, we'll proceed if it's not set, relying on free model access.
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
     analyst_agent_config = {
         "model_config": {
-            "id": "openai/gpt-3.5-turbo", # "meta-llama/llama-3.1-8b-instruct:free",
+            "id": "mistralai/mistral-7b-instruct:free", # Updated to a free model
             "temperature": 0.5,
         },
         "personality_config": {
             "name": "Insightful Analyst",
             "description": "An AI agent specialized in data analysis.",
-            # Initial instructions will be augmented by AnalystEngine
             "instructions": "You are a helpful AI assistant.", 
         },
     }
@@ -225,8 +243,15 @@ async def main_analyst_example():
         analytical_focus="Identifying emerging trends and anomalies in financial transaction logs.",
         description="Analyzes financial data to spot trends and anomalies.",
         storage_path="analyst_engine_storage.db",
-        model_provider="openrouter" # or "lmstudio" / "openai"
+        model_provider="openrouter" 
     )
+
+    # Ensure OPENROUTER_API_KEY is set, even if to a dummy for free models,
+    # as Agno's OpenRouter class might expect it.
+    if not os.getenv("OPENROUTER_API_KEY"):
+        logger.info("OPENROUTER_API_KEY not set, using a dummy key for example with free model.")
+        os.environ["OPENROUTER_API_KEY"] = "sk-or-v1-dummy-key-for-free-tier"
+
 
     await data_analyst.initialize()
 
@@ -241,7 +266,7 @@ async def main_analyst_example():
         {"timestamp": "2023-10-02T14:30:00Z", "transaction_id": "T1004", "amount": 12.00, "category": "coffee"},
         {"timestamp": "2023-10-02T16:00:00Z", "transaction_id": "T1005", "amount": 140.00, "category": "electronics"},
         {"timestamp": "2023-10-03T09:00:00Z", "transaction_id": "T1006", "amount": 22.00, "category": "groceries"},
-        {"timestamp": "2023-10-03T18:00:00Z", "transaction_id": "T1007", "amount": 7500.00, "category": "investment_ संदिग्ध"}, # Example anomaly
+        {"timestamp": "2023-10-03T18:00:00Z", "transaction_id": "T1007", "amount": 7500.00, "category": "investment_ संदिग्ध"}, 
     ]
     event_payload_analysis = {"data_to_analyze": sample_financial_data}
     
@@ -253,26 +278,22 @@ async def main_analyst_example():
     else:
         logger.error(f"\n{data_analyst.engine_name} had no analysis or an error occurred: {analysis_result['error']}")
 
-    # State export/import example
     exported_state = data_analyst.export_state()
     logger.info(f"\n--- Exported AnalystEngine State ---\n{exported_state}")
 
-    # Create a new instance and load state (minimal example)
     new_analyst_config = analyst_agent_config.copy()
     loaded_analyst = AnalystEngine(
         agent_config=new_analyst_config,
-        # analytical_focus will be loaded from state if present
         storage_path="loaded_analyst_storage.db" 
     )
-    loaded_analyst.import_state(exported_state) # Import the state
-    await loaded_analyst.initialize() # Initialize to apply loaded state to agent
+    loaded_analyst.import_state(exported_state) 
+    await loaded_analyst.initialize() 
 
     logger.info(f"Loaded analyst focus: {loaded_analyst.state.get('analytical_focus')}")
     logger.info(f"Loaded analyst system prompt: {loaded_analyst.agent.system_message if loaded_analyst.agent else 'Agent not loaded'}")
 
 
 if __name__ == "__main__":
-    # Configure basic logging for the example
     logging.basicConfig(level=logging.DEBUG, 
                         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     asyncio.run(main_analyst_example())

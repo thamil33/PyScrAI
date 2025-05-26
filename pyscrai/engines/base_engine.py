@@ -24,7 +24,7 @@ from agno.storage.sqlite import SqliteStorage
 from ..databases.models.schemas import (
     EngineHeartbeat,
     EngineRegistration,
-    EngineStateResponse, # For fetching state
+    # EngineStateResponse, # For fetching state
     EventStatusUpdate,
     QueuedEventResponse,
     ResourceLimits, # Used by EngineRegistration
@@ -71,21 +71,13 @@ class BaseEngine(ABC):
         self.engine_id: str = engine_id or str(uuid.uuid4())
         self.engine_name: str = engine_name or self.__class__.__name__
         self.engine_type: str = engine_type
-        self.description: Optional[str] = description
-        
+        self.description: Optional[str] = description        
         self.agent_config: Dict[str, Any] = agent_config
         self.storage_path: Optional[str] = storage_path
         self.model_provider: str = model_provider
         
         self.agent: Optional[Agent] = None
-        self.state: Dict[str, Any] = { # Initialize with core engine info
-            "engine_id": self.engine_id,
-            "engine_name": self.engine_name,
-            "engine_type": self.engine_type,
-            "description": self.description,
-            "model_provider": self.model_provider,
-            # Other persistent state can be added here by specialized engines
-        }
+        self.state: Dict[str, Any] = {}  # Initialize as empty dict
         self.initialized: bool = False
         self.logger: logging.Logger = logging.getLogger(self.__class__.__name__)
         
@@ -148,7 +140,7 @@ class BaseEngine(ABC):
         # Set up storage
         storage = None
         if self.storage_path:
-            storage_table_name = f"agent_storage_{self.engine_name.lower().replace(' ', '_')}_{self.engine_id[:8]}"
+            storage_table_name = f"engine_{self.engine_name.lower().replace(' ', '_')}" # Simpler table name
             storage = SqliteStorage(
                 db_file=self.storage_path,
                 table_name=storage_table_name
@@ -243,6 +235,45 @@ class BaseEngine(ABC):
             self.logger.error(f"Error during agent interaction for '{self.engine_name}': {e}", exc_info=True)
             return {"content": None, "error": str(e)}
 
+    async def run(self, message: str) -> Dict[str, Any]:
+        """
+        Run the agent with a message and return structured results in the expected format.
+        This is the primary interface expected by tests and external consumers.
+        """
+        if not self.initialized:
+            await self.initialize()
+        
+        if not self.agent:
+            self.logger.error(f"Engine '{self.engine_name}' agent is not initialized. Cannot run.")
+            return {
+                "content": None,
+                "engine_type": self.__class__.__name__,
+                "messages": [],
+                "metrics": {},
+                "state": self.state,
+                "error": "Agent not initialized"
+            }
+
+        try:
+            response = await self.agent.arun(message)
+            return {
+                "content": response.content,
+                "engine_type": self.__class__.__name__,
+                "messages": [m.dict() for m in response.messages],
+                "metrics": response.metrics.dict(),
+                "state": self.state,
+            }
+        except Exception as e:
+            self.logger.error(f"Error during run for '{self.engine_name}': {e}", exc_info=True)
+            return {
+                "content": None,
+                "engine_type": self.__class__.__name__,
+                "messages": [],
+                "metrics": {},
+                "state": self.state,
+                "error": str(e)
+            }
+
     def update_internal_state(self, key: str, value: Any) -> None:
         """Update engine's internal state dictionary."""
         self.state[key] = value
@@ -308,7 +339,7 @@ class BaseEngine(ABC):
                 # If engine_id needs to be sent:
                 # engine_id=self.engine_id # Add this to EngineRegistration schema if needed
             )
-            endpoint = f"/engine-instances/" # POST to this endpoint
+            endpoint = "/engine-instances/" # POST to this endpoint
             
             self.logger.info(f"Registering engine '{self.engine_name}' (ID: {self.engine_id}) at {self.api_base_url}{endpoint}...")
             response = await self.http_client.post(

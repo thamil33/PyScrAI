@@ -21,6 +21,7 @@ from .base_engine import BaseEngine
 # Initialize a logger for this module
 logger = logging.getLogger(__name__)
 
+
 class ActorEngine(BaseEngine):
     """
     ActorEngine for character simulation.
@@ -33,6 +34,44 @@ class ActorEngine(BaseEngine):
                                             personality.
         character_name (str): The name of the character this engine represents.
     """
+
+    async def initialize(self, register_with_server: bool = True) -> None:
+        """
+        Initializes the ActorEngine, including the underlying Agno agent
+        and personality configuration.
+
+        Args:
+            register_with_server (bool): Whether to register the engine with the server.
+        """
+        if self.initialized:
+            self.logger.info(f"ActorEngine '{self.engine_name}' ({self.character_name}) already initialized.")
+            return
+
+        # Call the parent's initialize method, passing the argument
+        await super().initialize(register_with_server=register_with_server) 
+
+        if self.agent:
+            self._configure_agent_personality() # Ensure this method exists and is correctly named
+            self.logger.info(f"ActorEngine '{self.engine_name}' ({self.character_name}) fully initialized.")
+        else:
+            # BaseEngine's initialize should log errors if agent creation fails
+            self.logger.error(f"Agent not initialized in BaseEngine for ActorEngine '{self.engine_name}'. Personality not configured.")
+        # self.initialized is set by BaseEngine
+
+            self.logger.info(f"ActorEngine '{self.engine_name}' ({self.character_name}) already initialized.")
+            return
+
+        # Call the parent's initialize method, passing the argument
+        await super().initialize(register_with_server=register_with_server) 
+        
+        if self.agent:
+            self._configure_agent_personality() # Ensure this method exists and is correctly named
+            self.logger.info(f"ActorEngine '{self.engine_name}' ({self.character_name}) fully initialized.")
+        else:
+            # BaseEngine's initialize should log errors if agent creation fails
+            self.logger.error(f"Agent not initialized in BaseEngine for ActorEngine '{self.engine_name}'. Personality not configured.")
+        # self.initialized is set by BaseEngine
+
 
     def __init__(
         self,
