@@ -1,11 +1,13 @@
-# PyScrAI/pyscrai/utils/config.py
+"""
+Configuration management for PyScrAI
+"""
+
+import os
+from pathlib import Path
 from typing import Optional, Dict, Any
 from pydantic_settings import BaseSettings
 from pydantic import Field
-# import dotenv
 
-# # Load environment variables from a .env file if it exists
-# dotenv.load_dotenv
 
 class Settings(BaseSettings):
     """
@@ -18,39 +20,23 @@ class Settings(BaseSettings):
     # OpenRouter specific settings
     OPENROUTER_API_KEY: Optional[str] = Field(default=None, env="OPENROUTER_API_KEY")
     OPENROUTER_BASE_URL: str = Field(default="https://openrouter.ai/api/v1", env="OPENROUTER_BASE_URL")
-    OPENROUTER_DEFAULT_MODEL_ID: str = Field(default="meta-llama/llama-4-maverick:free", env="OPENROUTER_DEFAULT_MODEL_ID")
-    # Optional: For OpenRouter leaderboard tracking
+    PYSCRAI_OPENROUTER_MODEL_ID: str = Field(default="meta-llama/llama-3.1-8b-instruct:free", env="PYSCRAI_OPENROUTER_MODEL_ID")
     OPENROUTER_SITE_URL: Optional[str] = Field(default=None, env="OPENROUTER_SITE_URL")
     OPENROUTER_X_TITLE: Optional[str] = Field(default=None, env="OPENROUTER_X_TITLE")
 
     # LMStudio specific settings
-    LMSTUDIO_BASE_URL: str = Field(default="http://localhost:1234/v1", env="LMSTUDIO_BASE_URL")
-    LMSTUDIO_API_KEY: Optional[str] = Field(default=None, env="LMSTUDIO_API_KEY") # Typically not required for local LMStudio
-    LMSTUDIO_DEFAULT_MODEL_ID: str = Field(default="local-model", env="LMSTUDIO_DEFAULT_MODEL_ID") # Or the specific model name served
-
-    # Add other global settings for PyScrAI here if needed
+    PYSCRAI_LMSTUDIO_API_BASE: str = Field(default="http://localhost:1234/v1", env="PYSCRAI_LMSTUDIO_API_BASE")
+    LMSTUDIO_API_KEY: Optional[str] = Field(default=None, env="LMSTUDIO_API_KEY")
+    PYSCRAI_LMSTUDIO_MODEL_ID: str = Field(default="llama-3.1-8b-instruct", env="PYSCRAI_LMSTUDIO_MODEL_ID")
 
     class Config:
-        # Pydantic settings configuration
-        env_file = ".env"  # Load from .env file if present
+        env_file = ".env"
         env_file_encoding = "utf-8"
-        extra = "ignore"  # Ignore extra fields not defined in the model
-
-# Instantiate settings
-# This instance will be imported and used across the application
-settings = Settings()
-
-# Example of how to access a setting:
-# from pyscrai.utils.config import settings
-# print(settings.OPENROUTER_API_KEY)
-
-# Additional configuration class for project paths and setup
-from pathlib import Path
-import os
+        extra = "ignore"
 
 
 class Config:
-    """Configuration management for PyScrAI"""
+    """Configuration management for PyScrAI paths and defaults"""
     
     # Project paths
     PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -59,10 +45,6 @@ class Config:
     
     # Database
     DATABASE_URL = f"sqlite:///{DATA_DIR / 'pyscrai.db'}"
-    
-    # Default model configurations
-    DEFAULT_OPENROUTER_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
-    DEFAULT_LMSTUDIO_MODEL = "llama-3.1-8b-instruct"
     
     # API settings
     API_HOST = "localhost"
@@ -82,18 +64,21 @@ class Config:
         """Get default model configuration"""
         if provider == "openrouter":
             return {
-                "id": cls.DEFAULT_OPENROUTER_MODEL,
+                "id": settings.PYSCRAI_OPENROUTER_MODEL_ID,
                 "temperature": 0.7,
-                "api_key": os.environ.get("OPENROUTER_API_KEY")
+                "api_key": settings.OPENROUTER_API_KEY
             }
         elif provider == "lmstudio":
             return {
-                "id": cls.DEFAULT_LMSTUDIO_MODEL,
+                "id": settings.PYSCRAI_LMSTUDIO_MODEL_ID,
                 "temperature": 0.7
             }
         else:
             raise ValueError(f"Unsupported provider: {provider}")
 
+
+# Instantiate settings
+settings = Settings()
 
 # Initialize project directories on import
 Config.ensure_directories()

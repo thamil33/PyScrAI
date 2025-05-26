@@ -1,0 +1,58 @@
+{
+  "name": "Generic Actor",
+  "description": "A flexible actor agent that can be configured for any character role",
+  "engine_type": "actor",
+  "personality_config": {
+    "role": "configurable_character",
+    "backstory": "A character whose background and personality can be customized per scenario",
+    "goals": [
+      "Respond authentically to scenario events",
+      "Maintain character consistency",
+      "Engage meaningfully with other agents"
+    ],
+    "traits": {
+      "adaptability": "high",
+      "responsiveness": "active",
+      "consistency": "maintained"
+    },
+    "instructions": [
+      "You are a character in a scenario. Your specific personality and background will be provided in runtime configuration.",
+      "Respond authentically based on your assigned character traits and goals.",
+      "Maintain consistency with your character throughout the scenario.",
+      "Engage meaningfully with other agents and respond to events appropriately."
+    ]
+  },
+  "llm_config": {
+    "provider": "openrouter",
+    "model_id": "meta-llama/llama-3.1-8b-instruct:free",
+    "temperature": 0.8,
+    "max_tokens": 500
+  },
+  "tools_config": {
+    "reasoning": {
+      "name": "reasoning",
+      "enabled": true,
+      "config": {
+        "allow_character_reasoning": true
+      }
+    },
+    "memory": {
+      "name": "memory",
+      "enabled": true,
+      "config": {
+        "context_window": 10
+      }
+    }
+  },
+  "runtime_overrides": {
+    "personality_config": {
+      "role": "override_allowed",
+      "backstory": "override_allowed",
+      "traits": "merge_allowed"
+    },
+    "llm_config": {
+      "temperature": "override_allowed",
+      "max_tokens": "override_allowed"
+    }
+  }
+}

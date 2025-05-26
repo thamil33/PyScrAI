@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from ..databases.models import ScenarioTemplate, ScenarioRun, AgentInstance
 from ..factories.agent_factory import AgentFactory
+from ..factories.template_manager import TemplateManager
 
 
 class ScenarioFactory:
@@ -15,6 +16,7 @@ class ScenarioFactory:
     def __init__(self, db: Session):
         self.db = db
         self.agent_factory = AgentFactory(db)
+        self.template_manager = TemplateManager(db)  # Add template_manager attribute
     
     def create_scenario_run(
         self,
@@ -135,3 +137,92 @@ class ScenarioFactory:
         if template_id:
             query = query.filter(ScenarioRun.template_id == template_id)
         return query.all()
+    
+    def create_scenario_run_from_template(
+        self,
+        template_name: str,
+        run_name: str,
+        agent_configs: Optional[List[Dict[str, Any]]] = None,
+        runtime_config: Optional[Dict[str, Any]] = None
+    ) -> ScenarioRun:
+        """Create a scenario run from a template name with agent configurations"""
+        
+        # Find the scenario template by name
+        template = self.db.query(ScenarioTemplate).filter(ScenarioTemplate.name == template_name).first()
+        if not template:
+            raise ValueError(f"Scenario template '{template_name}' not found")
+        
+        # Create the scenario run
+        scenario_run = self.create_scenario_run(
+            template_id=template.id,
+            run_name=run_name,
+            runtime_config=runtime_config or {}
+        )
+        
+        # Setup agent instances based on provided configurations or template defaults
+        if agent_configs:
+            self._setup_agents_from_configs(scenario_run.id, agent_configs)
+        elif template.agent_roles:
+            self.setup_agents_for_scenario(scenario_run_id=scenario_run.id)
+        
+        return scenario_run
+    
+    def _setup_agents_from_configs(
+        self,
+        scenario_run_id: int,
+        agent_configs: List[Dict[str, Any]]
+    ) -> List[AgentInstance]:
+        """Set up agents from explicit configurations"""
+        
+        created_instances = []
+        
+        for config in agent_configs:
+            template_name = config.get("template_name")
+            instance_name = config.get("instance_name")
+            runtime_config = config.get("runtime_config", {})
+            
+            if not template_name or not instance_name:
+                raise ValueError("Each agent config must have 'template_name' and 'instance_name'")
+            
+            # Find the agent template by name
+            from ..databases.models import AgentTemplate
+            agent_template = self.db.query(AgentTemplate).filter(AgentTemplate.name == template_name).first()
+            if not agent_template:
+                raise ValueError(f"Agent template '{template_name}' not found")
+            
+            # Create the agent instance
+            instance = self.agent_factory.create_agent_instance(
+                template_id=agent_template.id,
+                scenario_run_id=scenario_run_id,
+                instance_name=instance_name,
+                runtime_config=runtime_config
+            )
+            
+            created_instances.append(instance)
+        
+        return created_instances
+
+    def create_scenario_from_template(
+        self,
+        template_id: int,
+        name: str,
+        config: Optional[Dict[str, Any]] = None
+    ) -> ScenarioRun:
+        """Create a complete scenario from a template, including agent instances"""
+        # First create the scenario run
+        scenario_run = self.create_scenario_run(
+            template_id=template_id,
+            run_name=name,
+            runtime_config=config or {}
+        )
+        
+        # Get template details
+        template = self.db.query(ScenarioTemplate).filter(ScenarioTemplate.id == template_id).first()
+        
+        # Setup agent instances based on template roles
+        if template and template.agent_roles:
+            self.setup_agents_for_scenario(
+                scenario_run_id=scenario_run.id
+            )
+        
+        return scenario_run

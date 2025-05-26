@@ -51,7 +51,7 @@ class AgentFactory:
     def create_agent_engine(
         self,
         instance_id: int,
-        engine_type: str = "base",
+        engine_type: Optional[str] = None,
         storage_path: Optional[str] = None,
         model_provider: str = "openrouter"
     ) -> BaseEngine:
@@ -61,8 +61,19 @@ class AgentFactory:
         if not instance:
             raise ValueError(f"Agent instance with ID {instance_id} not found")
         
-        # Merge template and runtime configs
+        # Get template and determine engine type
         template = instance.template
+        
+        # Determine engine type from template if not explicitly provided
+        if engine_type is None:
+            # Check if template has engine_type field
+            if hasattr(template, 'engine_type') and template.engine_type:
+                engine_type = template.engine_type
+            else:
+                # Fall back to checking personality_config for engine_type
+                engine_type = template.personality_config.get("engine_type", "base")
+        
+        # Merge template and runtime configs
         agent_config = {
             "personality_config": template.personality_config,
             "model_config": template.llm_config,  # Using llm_config instead of model_config
@@ -70,13 +81,63 @@ class AgentFactory:
             "runtime_config": instance.runtime_config
         }
         
-        # For Phase 1, we only use the base engine
-        # Specialized engines (ActorEngine, NarratorEngine, AnalystEngine) will be implemented in Phase 2
-        if engine_type in ["actor", "narrator", "analyst"]:
-            # Log that we're using base engine instead of specialized engine
-            print(f"Warning: {engine_type} engine not yet implemented, using base engine")
+        # Import specialized engines
+        from ..engines.actor_engine import ActorEngine
+        from ..engines.narrator_engine import NarratorEngine
+        from ..engines.analyst_engine import AnalystEngine
         
-        return BaseEngine(agent_config, storage_path, model_provider)
+        # Create appropriate engine based on type
+        if engine_type.lower() == "actor":
+            # Extract character-specific config from template
+            personality = template.personality_config
+            character_name = personality.get("role", "Character")
+            personality_traits = personality.get("backstory", "A character in the scenario")
+            
+            return ActorEngine(
+                agent_config=agent_config,
+                character_name=character_name,
+                personality_traits=personality_traits,
+                storage_path=storage_path,
+                model_provider=model_provider
+            )
+            
+        elif engine_type.lower() == "narrator":
+            # Extract narrator-specific config from template
+            personality = template.personality_config
+            traits = personality.get("traits", {})
+            narrative_style = "descriptive and engaging"
+            perspective = "third_person"
+            
+            # Override with template values if available
+            if isinstance(traits, dict):
+                if "narrative_style" in traits:
+                    narrative_style = traits["narrative_style"]
+                if "perspective" in traits:
+                    perspective = traits["perspective"]
+            
+            return NarratorEngine(
+                agent_config=agent_config,
+                narrative_style=narrative_style,
+                perspective=perspective,
+                storage_path=storage_path,
+                model_provider=model_provider
+            )
+            
+        elif engine_type.lower() == "analyst":
+            # Extract analyst-specific config from template
+            personality = template.personality_config
+            analysis_focus = personality.get("backstory", "behavioral patterns and outcomes")
+            
+            return AnalystEngine(
+                agent_config=agent_config,
+                analysis_focus=analysis_focus,
+                storage_path=storage_path,
+                model_provider=model_provider
+            )
+            
+        else:
+            # Default to base engine
+            return BaseEngine(agent_config, storage_path, model_provider)
     
     def update_instance_state(self, instance_id: int, state_update: Dict[str, Any]) -> AgentInstance:
         """Update the state of an agent instance"""

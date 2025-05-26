@@ -3,11 +3,8 @@ Database models for PyScrAI
 """
 
 from .base import Base
-from .agent_models import AgentTemplate, AgentInstance
-from .scenario_models import ScenarioTemplate, ScenarioRun
-from .event_models import EventType, EventInstance
-from .engine_models import EngineState
-from .log_models import ExecutionLog
+from .core_models import AgentTemplate, AgentInstance, ScenarioTemplate, ScenarioRun
+from .execution_models import EventType, EventInstance, EngineState, ExecutionLog
 
 __all__ = [
     "Base",
