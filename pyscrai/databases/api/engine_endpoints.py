@@ -35,10 +35,10 @@ async def register_engine(
         status="active",
         last_heartbeat=datetime.utcnow(),
         current_workload=0,
-        metadata={
+        engine_metadata={
             "static_config": {
                 "capabilities": registration.capabilities,
-                "resource_limits": registration.resource_limits
+                "resource_limits": registration.resource_limits.model_dump()
             },
             "dynamic_state": {
                 "resource_utilization": {}
@@ -66,7 +66,7 @@ async def update_heartbeat(
     engine.status = heartbeat.status
     engine.current_workload = heartbeat.current_workload
     engine.last_heartbeat = datetime.utcnow()
-    engine.metadata["dynamic_state"]["resource_utilization"] = heartbeat.resource_utilization
+    engine.engine_metadata["dynamic_state"]["resource_utilization"] = heartbeat.resource_utilization
     
     db.commit()
     db.refresh(engine)
@@ -92,7 +92,8 @@ async def deregister_engine(
 @router.get("/events/queue/{engine_type}", response_model=List[QueuedEventResponse])
 async def get_events_for_processing(
     engine_type: str,
-    request: EventQueueRequest,
+    engine_id: str = Query(..., description="Engine ID requesting events"),
+    batch_size: int = Query(10, description="Number of events to retrieve"),
     db: Session = Depends(get_db)
 ) -> List[QueuedEventResponse]:
     """Get next batch of events for processing"""
@@ -117,11 +118,10 @@ async def get_events_for_processing(
                 EventInstance.lock_until.is_(None),
                 EventInstance.lock_until <= now
             )
-        )
-    ).order_by(
+        )    ).order_by(
         EventInstance.priority.desc(),
         EventInstance.created_at.asc()
-    ).limit(request.batch_size)
+    ).limit(batch_size)
     
     events = query.all()
     
@@ -130,7 +130,7 @@ async def get_events_for_processing(
     for event in events:
         event.status = "processing"
         event.lock_until = lock_until
-        event.locked_by = request.engine_id
+        event.locked_by = engine_id
     
     db.commit()
     

@@ -2,63 +2,89 @@
   "name": "Supernatural Vision Investigation",
   "description": "Scenario where Pope Leo XIII experiences and investigates a supernatural vision",
   "config": {
-    "duration_minutes": 30,
-    "max_iterations": 10,
-    "auto_progress": true,
-    "setting": {
-      "location": "Vatican City, Papal Apartments",
-      "time_period": "Late 19th century (1880s-1900s)",
-      "atmosphere": "mystical, contemplative, sacred"
+    "max_turns": 10,
+    "timeout_seconds": 1800,
+    "completion_conditions": {
+      "decision_reached": true,
+      "theological_analysis_complete": true
+    },
+    "error_handling": {
+      "retry_attempts": 3,
+      "fallback_responses": true
     }
   },
   "agent_roles": {
-    "primary_agent": {
+    "pope": {
       "template_name": "Pope Leo XIII",
-      "role": "experiencer",
-      "description": "The main character experiencing the vision"
+      "role_config": {
+        "role": "experiencer",
+        "description": "The main character experiencing the vision"
+      },
+      "required": true
     },
     "narrator": {
       "template_name": "Narrator",
-      "role": "storyteller",
-      "description": "Describes the environment and vision details"
+      "role_config": {
+        "role": "storyteller", 
+        "description": "Describes the environment and vision details"
+      },
+      "required": true
     }
   },
   "event_flow": {
-    "phases": [
-      {
-        "name": "initial_experience",
-        "description": "Pope Leo XIII begins to experience the vision",
+    "initial_experience": {
+      "type": "trigger",
+      "source": "narrator",
+      "target": "pope",
+      "data_schema": {
+        "prompt": "string",
+        "setting": "object",
+        "atmosphere": "string"
+      },
+      "conditions": {
         "trigger": "scenario_start",
-        "duration": 5,
-        "prompt_template": "The evening prayer has ended, and Pope Leo XIII finds himself alone in his private study. Suddenly, an unusual presence fills the room..."
-      },
-      {
-        "name": "vision_deepens",
-        "description": "The vision becomes more vivid and detailed",
-        "trigger": "time_elapsed",
-        "duration": 10,
-        "prompt_template": "The supernatural vision grows stronger and more detailed. What does Pope Leo XIII see and experience?"
-      },
-      {
-        "name": "theological_reflection",
-        "description": "Pope reflects on the theological significance",
-        "trigger": "vision_complete",
-        "duration": 10,
-        "prompt_template": "As the vision subsides, Pope Leo XIII contemplates its meaning through the lens of Catholic theology and doctrine."
-      },
-      {
-        "name": "decision_making",
-        "description": "Pope decides how to respond to the vision",
-        "trigger": "reflection_complete",
-        "duration": 5,
-        "prompt_template": "Having reflected on the vision's significance, Pope Leo XIII must decide what action, if any, to take in response to this supernatural experience."
+        "duration_minutes": 5
       }
-    ],
-    "transitions": {
-      "initial_experience": "vision_deepens",
-      "vision_deepens": "theological_reflection", 
-      "theological_reflection": "decision_making",
-      "decision_making": "scenario_complete"
+    },
+    "vision_deepens": {
+      "type": "interaction",
+      "source": "pope",
+      "target": "narrator",
+      "data_schema": {
+        "vision_details": "object",
+        "emotional_response": "string"
+      },
+      "conditions": {
+        "trigger": "initial_experience_complete",
+        "duration_minutes": 10
+      }
+    },
+    "theological_reflection": {
+      "type": "response",
+      "source": "pope",
+      "target": null,
+      "data_schema": {
+        "theological_analysis": "string",
+        "doctrinal_references": "array"
+      },
+      "conditions": {
+        "trigger": "vision_complete",
+        "requires_reasoning": true
+      }
+    },
+    "decision_making": {
+      "type": "state_change",
+      "source": "pope",
+      "target": "scenario",
+      "data_schema": {
+        "decision": "string",
+        "justification": "string",
+        "next_actions": "array"
+      },
+      "conditions": {
+        "trigger": "reflection_complete",
+        "final_phase": true
+      }
     }
   }
 }

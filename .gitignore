@@ -11,6 +11,7 @@ infra
 *.cache*
 *.config*
 
+
 # Machine specific
 .idea
 .vscode
@@ -48,6 +49,10 @@ phienv*
 scratch
 junk
 tmp
+
+# Exclude external dependencies and docs
+# agno/
+docs/Agno&OpenRouter_FullDocs/
 agents.db
 data.db
 .ipynb_checkpoints
@@ -55,7 +60,7 @@ build
 audio_generations
 
 *.db
-
+.copilotignore
 # Google OAuth token
 token.json
 
@@ -64,10 +69,6 @@ token.json
 # Coverage
 coverage_report
 .coverage
-
-**/agno_repository/scripts
-**/agno_repository/libs/agno/scripts
-**/agno_repository/libs/agno/tests
-**/agno_repository/ango_my_examples
-**/agno_repository/cookbook
+.docs
 .editorconfig
+.github
