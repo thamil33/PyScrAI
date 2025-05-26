@@ -103,36 +103,22 @@
 
 ## Implementation Order
 
-### Week 1: Core Integration
+###  Core Integration
 1. **Fix Template Loading** (2.1.1)
 2. **Update Engine Factory** (2.1.2)  
 3. **Complete LLM Integration** (2.2.3)
 
-### Week 2: Scenario Execution
+### 2: Scenario Execution
 4. **Fix Scenario Runner** (2.2.1)
 5. **Agent Interaction System** (2.2.2)
 6. **Database Logging** (2.3.1)
 
-### Week 3: Testing & Demo
+### Testing & Demo
 7. **Create Test Scenario** (2.4.1)
 8. **Integration Testing** (2.4.2)
 9. **Demo Script** (2.4.3)
 
 ---
-
-## Key Files to Modify
-
-### High Priority
-- `pyscrai/factories/scenario_factory.py` - Fix template loading
-- `pyscrai/factories/agent_factory.py` - Fix agent creation
-- `pyscrai/engines/narrator_engine.py` - Add LLM integration
-- `pyscrai/engines/analyst_engine.py` - Add LLM integration
-- `pyscrai/engines/scenario_runner.py` - Fix integration issues
-
-### Medium Priority  
-- `pyscrai/engines/orchestration/engine_manager.py` - Agent communication
-- `pyscrai/engines/agent_runtime.py` - Database logging
-- `pyscrai/databases/api/routes/scenarios.py` - Execution endpoints
 
 ### Testing
 - `tests/test_end_to_end_scenario.py` - Integration test
@@ -157,11 +143,9 @@ scenario_id = await runner.start_scenario(
 )
 
 # Agents interact using real LLMs, all logged to database
-await runner.send_event_to_scenario(scenario_id, "vision_begins", {
-    "prompt": "A supernatural vision appears before the Pope"
-})
+
 
 # Scenario runs to completion with full database persistence
-```
+
 
 This plan focuses on **integration over new features** - making existing components work together for complete scenario execution.
