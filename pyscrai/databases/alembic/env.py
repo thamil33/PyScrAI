@@ -1,4 +1,6 @@
+# File: thamil33/pyscrai/PyScrAI-33f35871271ff8093e6990175d671656afedc364/pyscrai/databases/alembic/env.py
 from logging.config import fileConfig
+from pathlib import Path # Ensure Path is imported
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
@@ -16,10 +18,8 @@ if config.config_file_name is not None:
 
 # add your model's MetaData object here
 # for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
-from pyscrai.databases.models.base import Base
-target_metadata = Base.metadata
+from pyscrai.databases.models.base import Base #
+target_metadata = Base.metadata #
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -39,12 +39,13 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
+    url = config.get_main_option("sqlalchemy.url") #
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        render_as_batch=True # Add for SQLite compatibility
     )
 
     with context.begin_transaction():
@@ -58,17 +59,40 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    # Get the connection from the Alembic config attributes, if available (passed from tests)
+    connectable = config.attributes.get('connection', None)
 
-    with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
+    if connectable is None:
+        # Fallback: create engine from settings in alembic.ini or dynamically set in Config object.
+        # This is for when running `alembic upgrade head` from CLI.
+        
+        # Create a dictionary for engine_from_config, prioritizing URL from get_main_option
+        ini_section = config.get_section(config.config_ini_section, {})
+        db_url_main_option = config.get_main_option("sqlalchemy.url")
+        if db_url_main_option:
+            ini_section['sqlalchemy.url'] = db_url_main_option
+        
+        connectable_engine = engine_from_config(
+            ini_section, # Use the section, potentially updated with db_url_main_option
+            prefix="sqlalchemy.",
+            poolclass=pool.NullPool,
         )
-
+        with connectable_engine.connect() as connection:
+            context.configure(
+                connection=connection,
+                target_metadata=target_metadata,
+                render_as_batch=True # Add for SQLite compatibility
+            )
+            with context.begin_transaction():
+                context.run_migrations()
+    else:
+        # If connectable is already a Connection object (passed from tests via attributes)
+        # Configure context directly with this existing connection
+        context.configure(
+            connection=connectable, # Use the existing connection from attributes
+            target_metadata=target_metadata,
+            render_as_batch=True # Add for SQLite compatibility
+        )
         with context.begin_transaction():
             context.run_migrations()
 

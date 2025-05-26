@@ -14,10 +14,12 @@ Coding standards, domain knowledge, and preferences that AI should follow.
 - Also remember to always activate the virtual environment before running any commands.
 - **Virtual Environment Path:** `C:\Users\tyler\dev\PyScrAI\agno\.venv\Scripts\python.exe` - This is the path to the virtual environment for the project.
 
-`C:\Users\tyler\dev\PyScrAI\agno\libs\agno\agno` - This is the path to the Agno library source folder, within the PyScrAI project.
-The `agno` folder contains the entire repository of the Agno library, which is a Python library for building AI agents.
+- **Project Root Path:**
+`C:\Users\tyler\dev\PyScrAI\pyscrai` - The path to the PyScrAI project root directory, which contains the main application code and configuration files.
 
-`C:\Users\tyler\dev\PyScrAI\blueprint.md`- This is the path to the project blueprint file, which outlines the structure and components of the PyScrAI project.
-C:\Users\tyler\dev\PyScrAI\pyscrai`- The path to the PyScrAI project root directory, which contains the main application code and configuration files.
+`docs`- This is the path to the project documentation folder, which contains various guides and development notes.  **This is a very important resource for understanding the project structure and development plans.** 
+
+
+
 
 
