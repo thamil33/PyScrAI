@@ -1,7 +1,12 @@
-"""
-Base SQLAlchemy model configuration
-"""
+"""Base database model configuration."""
 
-from sqlalchemy.orm import declarative_base
+from sqlalchemy import MetaData
+from sqlalchemy.orm import DeclarativeBase
 
-Base = declarative_base()
+# Create a single MetaData instance to be shared across all models
+metadata = MetaData()
+
+class Base(DeclarativeBase):
+    """Base class for all database models."""
+    metadata = metadata
+    metadata = metadata

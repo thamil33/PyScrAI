@@ -1,0 +1,32 @@
+from pyscrai.databases.models.template_validators import *
+from pyscrai.databases.models.schemas import *
+import json
+
+# Test the new validators with the generic actor template
+with open('pyscrai/templates/agents/generic_actor.json', 'r') as f:
+    actor_template = json.load(f)
+
+print('Testing AgentTemplateValidator with generic actor template...')
+try:
+    validated = AgentTemplateValidator(**actor_template)
+    print('✓ Generic Actor template validation successful')
+    print(f'  Engine type: {validated.engine_type}')
+    print(f'  Runtime overrides: {bool(validated.runtime_overrides)}')
+except Exception as e:
+    print(f'✗ Validation failed: {e}')
+
+# Test with generic conversation scenario
+with open('pyscrai/templates/scenarios/generic_conversation.json', 'r') as f:
+    scenario_template = json.load(f)
+
+print('\nTesting ScenarioTemplateValidator with generic conversation scenario...')
+try:
+    validated = ScenarioTemplateValidator(**scenario_template)
+    print('✓ Generic Conversation scenario validation successful')
+    print(f'  Agent roles count: {len(validated.agent_roles)}')
+    print(f'  Event flow count: {len(validated.event_flow)}')
+    print(f'  Runtime customization: {bool(validated.runtime_customization)}')
+except Exception as e:
+    print(f'✗ Validation failed: {e}')
+
+print('\nAll validation tests completed!')

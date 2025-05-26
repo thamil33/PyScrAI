@@ -8,13 +8,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 
 from ...database import get_db
-from ....databases.models.schemas import ScenarioRunCreate, ScenarioRunResponse
 from ...models.schemas import (
+    ScenarioRunCreate, 
+    ScenarioRunResponse,
     EventInstanceCreate,
     EventInstanceResponse
 )
-from ...models.scenario_models import ScenarioRun, ScenarioTemplate
-from ...models.event_models import EventInstance, EventType
+from ...models.core_models import ScenarioRun, ScenarioTemplate
+from ...models.execution_models import EventInstance, EventType
 from ....factories.scenario_factory import ScenarioFactory
 
 router = APIRouter(prefix="/api/v1/scenarios", tags=["scenarios"])

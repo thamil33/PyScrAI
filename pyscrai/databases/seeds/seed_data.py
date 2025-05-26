@@ -5,15 +5,10 @@ This module handles the loading and validation of core system data (e.g., event 
 system-level lookup values) that are essential for the system's operation.
 """
 
-import json
-import os
 from pathlib import Path
-from typing import Dict, List, Optional, Any
-import logging
-
+import json, os, logging
+from typing import List, Any, Dict, Optional
 from pydantic import BaseModel, Field
-
-from ..models.template_validators import EventType
 
 logger = logging.getLogger(__name__)
 
@@ -42,12 +37,16 @@ class CoreSystemData:
             return self._get_default_event_types()
             
         try:
-            with open(event_types_file, 'r') as f:
-                raw_event_types = json.load(f)
+            raw = json.loads(event_types_file.read_text())
+            
+            # rename "schema" key to "data_schema"
+            for evt in raw:
+                if "schema" in evt:
+                    evt["data_schema"] = evt.pop("schema")
             
             # Validate each event type definition
-            event_types = [SystemEventType(**evt_data) for evt_data in raw_event_types]
-            logger.info(f"Loaded {len(event_types)} system event types from {event_types_file}")
+            event_types = [SystemEventType(**evt) for evt in raw]
+            logger.info(f"Loaded {len(event_types)} system event types")
             return event_types
             
         except Exception as e:

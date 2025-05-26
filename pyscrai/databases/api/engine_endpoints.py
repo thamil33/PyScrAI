@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
+# Update imports to use the correct model structure
 from ..models.schemas import (
     EngineRegistration, 
     EngineHeartbeat, 
@@ -16,9 +17,10 @@ from ..models.schemas import (
     EventStatusUpdate,
     QueuedEventResponse
 )
-from ..models.engine_models import EngineState
-from ..models.event_models import EventInstance, EventType
-from ..database import get_db
+from ..models.execution_models import EngineState
+# Fix: Import from models package directly since EventInstance/EventType might be in different modules
+from ..models import EventInstance, EventType
+from .. import get_db
 
 router = APIRouter(prefix="/api/v1", tags=["engines"])
 
@@ -98,39 +100,38 @@ async def get_events_for_processing(
 ) -> List[QueuedEventResponse]:
     """Get next batch of events for processing"""
     # Find events that are:
-    # 1. Queued or failed (with retry)
-    # 2. Not locked or lock expired
-    # 3. Match engine type
+    # 1. Pending or failed (with retry)
+    # 2. Not assigned or assignment expired
+    # 3. Match engine type priority
     now = datetime.utcnow()
     
     query = db.query(EventInstance).join(EventType).filter(
         and_(
-            EventType.engine_type == engine_type,
             or_(
-                EventInstance.status == "queued",
+                EventInstance.status == "pending",
                 and_(
                     EventInstance.status == "failed",
-                    EventInstance.retry_count < 3,
-                    EventInstance.next_retry_time <= now
+                    EventInstance.processing_attempts < 3
                 )
             ),
             or_(
-                EventInstance.lock_until.is_(None),
-                EventInstance.lock_until <= now
+                EventInstance.assigned_engine_id.is_(None),
+                EventInstance.assigned_at < now - timedelta(minutes=5)  # Assignment expired
             )
-        )    ).order_by(
+        )
+    ).order_by(
         EventInstance.priority.desc(),
-        EventInstance.created_at.asc()
+        EventInstance.timestamp.asc()
     ).limit(batch_size)
     
     events = query.all()
     
-    # Lock the events
-    lock_until = now + timedelta(minutes=5)
+    # Assign the events to this engine
     for event in events:
         event.status = "processing"
-        event.lock_until = lock_until
-        event.locked_by = engine_id
+        event.assigned_engine_id = engine_id
+        event.assigned_at = now
+        event.processing_attempts += 1
     
     db.commit()
     
@@ -150,26 +151,17 @@ async def update_event_status(
     
     event.status = update.status
     if update.status == "completed":
-        if not event.processed_by_engines:
-            event.processed_by_engines = []
-        event.processed_by_engines.append({
-            "engine_id": event.locked_by,
-            "completed_at": datetime.utcnow().isoformat(),
-            "result": update.result
-        })
+        event.processing_result = update.result or {}
+        event.processed_at = datetime.utcnow()
     elif update.status == "failed":
-        event.retry_count += 1
-        event.last_error = update.error
-        if event.retry_count < 3:
-            # Exponential backoff for retries
-            delay = 30 * (2 ** (event.retry_count - 1))  # 30s, 60s, 120s
-            event.next_retry_time = datetime.utcnow() + timedelta(seconds=delay)
-            event.status = "queued"
+        event.error_info = {"error": update.error} if update.error else {}
+        if event.processing_attempts < 3:
+            event.status = "pending"  # Will be retried
         else:
-            event.status = "failed"
+            event.status = "failed"  # Max attempts reached
     
-    event.lock_until = None
-    event.locked_by = None
+    event.assigned_engine_id = None
+    event.assigned_at = None
     
     db.commit()
     return {"status": "success", "message": f"Event status updated to {update.status}"}

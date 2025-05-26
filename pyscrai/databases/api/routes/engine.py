@@ -1,11 +1,10 @@
 """
-API routes for engine management and event processing
+API routes for engine management and event processing - Updated for Universal Templates and Custom Engines
 """
 import uuid
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
@@ -19,51 +18,62 @@ from ...models.schemas import (
     EventStatusUpdate,
     QueuedEventResponse
 )
-from ...models.engine_models import EngineState
-from ...models.event_models import EventType, EventInstance
+from ...models.execution_models import EngineState, EventType, EventInstance, QueuedEvent
 
-# Dependency
-DBSession = Annotated[Session, Depends(get_db)]
-
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1/engines", tags=["engines"])
 
 # Engine Management Endpoints
-@router.post("/engine-instances", response_model=EngineStateResponse)
+@router.post("/register", response_model=EngineStateResponse)
 async def register_engine(
     registration: EngineRegistration,
     db: Session = Depends(get_db)
 ) -> EngineStateResponse:
     """Register a new engine instance"""
-    # Convert ResourceLimits to dict for JSON serialization
-    resource_limits_dict = {
-        "max_concurrent_events": registration.resource_limits.max_concurrent_events,
-        "memory_limit_mb": registration.resource_limits.memory_limit_mb
-    }
-    
-    engine = EngineState(
-        id=str(uuid.uuid4()),
-        engine_type=registration.engine_type,
-        status="active",
-        last_heartbeat=datetime.utcnow(),
-        current_workload=0,
-        engine_metadata={
-            "static_config": {
-                "capabilities": registration.capabilities,
-                "resource_limits": resource_limits_dict
-            },
-            "dynamic_state": {
-                "resource_utilization": {}
-            }
+    try:
+        # Generate unique engine ID
+        engine_id = f"{registration.engine_type}_{registration.engine_id}_{uuid.uuid4().hex[:8]}"
+        
+        # Convert capabilities and resource limits to dict for JSON storage
+        capabilities_dict = {
+            "supported_event_types": registration.capabilities.supported_event_types,
+            "max_concurrent_agents": registration.capabilities.max_concurrent_agents,
+            "supports_streaming": registration.capabilities.supports_streaming,
+            "supports_memory_persistence": registration.capabilities.supports_memory_persistence,
+            "custom_capabilities": registration.capabilities.custom_capabilities
         }
-    )
-    
-    db.add(engine)
-    db.commit()
-    db.refresh(engine)
-    return engine
+        
+        resource_limits_dict = {
+            "max_concurrent_events": registration.resource_limits.max_concurrent_events,
+            "memory_limit_mb": registration.resource_limits.memory_limit_mb,
+            "cpu_limit_percent": registration.resource_limits.cpu_limit_percent,
+            "max_processing_time_seconds": registration.resource_limits.max_processing_time_seconds
+        }
+        
+        engine = EngineState(
+            id=engine_id,
+            engine_type=registration.engine_type.value,
+            status="healthy",
+            capabilities=capabilities_dict,
+            resource_limits=resource_limits_dict,
+            engine_metadata=registration.metadata,
+            current_workload=0,
+            active_agents=0,
+            processed_events_count=0,
+            error_count=0,
+            last_heartbeat=datetime.utcnow()
+        )
+        
+        db.add(engine)
+        db.commit()
+        db.refresh(engine)
+        return engine
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to register engine: {str(e)}")
 
 
-@router.put("/engine-instances/{engine_id}/heartbeat", response_model=EngineStateResponse)
+@router.put("/{engine_id}/heartbeat", response_model=EngineStateResponse)
 async def update_heartbeat(
     engine_id: str,
     heartbeat: EngineHeartbeat,
@@ -74,26 +84,35 @@ async def update_heartbeat(
     if not engine:
         raise HTTPException(status_code=404, detail="Engine instance not found")
     
-    engine.status = heartbeat.status
-    engine.current_workload = heartbeat.current_workload
-    engine.last_heartbeat = datetime.utcnow()
-    
-    # Properly update nested JSON field to trigger change detection
-    metadata = engine.engine_metadata or {}
-    dynamic_state = metadata.get("dynamic_state", {})
-    # Merge existing resource utilization with new data
-    existing_util = dynamic_state.get("resource_utilization", {})
-    existing_util.update(heartbeat.resource_utilization)
-    dynamic_state["resource_utilization"] = existing_util
-    metadata["dynamic_state"] = dynamic_state
-    engine.engine_metadata = metadata
-    
-    db.commit()
-    db.refresh(engine)
-    return engine
+    try:
+        # Update engine state
+        engine.status = heartbeat.status
+        engine.current_workload = heartbeat.current_workload
+        engine.active_agents = heartbeat.active_agents
+        engine.processed_events_count = heartbeat.processed_events_count
+        engine.error_count = heartbeat.error_count
+        engine.last_heartbeat = datetime.utcnow()
+        
+        # Update performance metrics
+        if not engine.performance_metrics:
+            engine.performance_metrics = {}
+        engine.performance_metrics.update(heartbeat.resource_utilization)
+        
+        # Store last error if provided
+        if heartbeat.last_error:
+            engine.performance_metrics["last_error"] = heartbeat.last_error
+            engine.performance_metrics["last_error_time"] = datetime.utcnow().isoformat()
+        
+        db.commit()
+        db.refresh(engine)
+        return engine
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update heartbeat: {str(e)}")
 
 
-@router.delete("/engine-instances/{engine_id}")
+@router.delete("/{engine_id}")
 async def deregister_engine(
     engine_id: str,
     db: Session = Depends(get_db)
@@ -103,182 +122,252 @@ async def deregister_engine(
     if not engine:
         raise HTTPException(status_code=404, detail="Engine instance not found")
     
-    # Release any locked events before deregistering
-    locked_events = db.query(EventInstance).filter(
-        EventInstance.locked_by == engine_id,
-        EventInstance.status == "processing"
-    ).all()
-    
-    for event in locked_events:
-        event.status = "queued"
-        event.locked_by = None
-        event.lock_until = None
-    
-    db.delete(engine)
-    db.commit()
-    return {"status": "success", "message": "Engine instance deregistered"}
+    try:
+        # Release any assigned events back to queue
+        assigned_events = db.query(QueuedEvent).filter(
+            QueuedEvent.assigned_engine_id == engine_id,
+            QueuedEvent.status.in_(["assigned", "processing"])
+        ).all()
+        
+        for queued_event in assigned_events:
+            queued_event.status = "queued"
+            queued_event.assigned_engine_id = None
+            queued_event.assigned_at = None
+        
+        # Delete the engine
+        db.delete(engine)
+        db.commit()
+        
+        return {"status": "success", "message": "Engine instance deregistered successfully"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to deregister engine: {str(e)}")
 
-@router.get("/engine-instances", response_model=List[EngineStateResponse])
-async def list_engine_instances(db: Session = Depends(get_db)) -> List[EngineStateResponse]:
-    """List all engine instances"""
-    engines = db.query(EngineState).all()
+
+@router.get("/", response_model=List[EngineStateResponse])
+async def list_engines(
+    engine_type: Optional[str] = None,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db)
+) -> List[EngineStateResponse]:
+    """List all engine instances with optional filtering"""
+    query = db.query(EngineState)
+    
+    if engine_type:
+        query = query.filter(EngineState.engine_type == engine_type)
+    if status:
+        query = query.filter(EngineState.status == status)
+    
+    engines = query.order_by(EngineState.last_heartbeat.desc()).all()
     return engines
 
-@router.get("/engine-instances/{engine_id}", response_model=EngineStateResponse)
-async def get_engine_instance(engine_id: str, db: Session = Depends(get_db)) -> EngineStateResponse:
+
+@router.get("/{engine_id}", response_model=EngineStateResponse)
+async def get_engine(
+    engine_id: str,
+    db: Session = Depends(get_db)
+) -> EngineStateResponse:
     """Get engine instance by ID"""
     engine = db.query(EngineState).filter(EngineState.id == engine_id).first()
     if not engine:
         raise HTTPException(status_code=404, detail="Engine instance not found")
     return engine
 
-# Event Management Endpoints
-@router.get("/events/queue/{engine_type}", response_model=list[QueuedEventResponse])
-async def get_events_queue(
-    engine_type: str,
-    engine_id: str,  # Required for locking mechanism
-    max_events: int = 5,  # Default to 5 as per Engine Team Communication
-    capabilities: Optional[List[str]] = None,
+
+# Event Queue Management
+@router.post("/queue/request", response_model=List[QueuedEventResponse])
+async def request_events(
+    request: EventQueueRequest,
     db: Session = Depends(get_db)
-) -> list[QueuedEventResponse]:
-    """Get events from queue for processing with locking mechanism"""
+) -> List[QueuedEventResponse]:
+    """Request events from queue for processing"""
+    # Verify engine exists and is healthy
+    engine = db.query(EngineState).filter(EngineState.id == request.engine_id).first()
+    if not engine:
+        raise HTTPException(status_code=404, detail="Engine instance not found")
     
-    # Verify engine exists
+    if engine.status not in ["healthy", "degraded"]:
+        raise HTTPException(status_code=400, detail="Engine is not in a state to process events")
+    
+    try:
+        # Get available events for this engine type
+        query = db.query(QueuedEvent).filter(
+            QueuedEvent.engine_type == request.engine_type.value,
+            QueuedEvent.status == "queued"
+        )
+        
+        # Apply filters if provided
+        if request.priority_filter:
+            query = query.filter(QueuedEvent.priority.in_(request.priority_filter))
+        
+        if request.event_type_filter:
+            # Join with EventInstance and EventType to filter by event type names
+            query = query.join(QueuedEvent.event_instance).join(EventInstance.event_type).filter(
+                EventType.name.in_(request.event_type_filter)
+            )
+        
+        # Get events ordered by priority and creation time
+        events = query.order_by(
+            QueuedEvent.priority.desc(),
+            QueuedEvent.created_at.asc()
+        ).limit(request.max_events).all()
+        
+        # Assign events to this engine
+        for event in events:
+            event.status = "assigned"
+            event.assigned_engine_id = request.engine_id
+            event.assigned_at = datetime.utcnow()
+        
+        db.commit()
+        return events
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to request events: {str(e)}")
+
+
+@router.put("/events/{event_id}/status")
+async def update_event_status(
+    event_id: int,
+    status_update: EventStatusUpdate,
+    db: Session = Depends(get_db)
+) -> dict:
+    """Update event processing status"""
+    # Find the queued event
+    queued_event = db.query(QueuedEvent).filter(
+        QueuedEvent.event_instance_id == event_id
+    ).first()
+    
+    if not queued_event:
+        raise HTTPException(status_code=404, detail="Queued event not found")
+    
+    # Get the actual event instance
+    event_instance = db.query(EventInstance).filter(EventInstance.id == event_id).first()
+    if not event_instance:
+        raise HTTPException(status_code=404, detail="Event instance not found")
+    
+    try:
+        # Update event instance status
+        event_instance.status = status_update.status
+        
+        if status_update.result:
+            event_instance.processing_result = status_update.result
+        
+        if status_update.error:
+            event_instance.error_info = {"error": status_update.error, "timestamp": datetime.utcnow().isoformat()}
+        
+        if status_update.processing_time_ms:
+            if not event_instance.processing_result:
+                event_instance.processing_result = {}
+            event_instance.processing_result["processing_time_ms"] = status_update.processing_time_ms
+        
+        # Update queued event status
+        if status_update.status == "completed":
+            queued_event.status = "completed"
+            queued_event.completed_at = datetime.utcnow()
+            event_instance.processed_at = datetime.utcnow()
+        elif status_update.status == "failed":
+            queued_event.processing_attempts += 1
+            if queued_event.processing_attempts >= queued_event.max_attempts:
+                queued_event.status = "failed"
+                event_instance.status = "failed"
+            else:
+                queued_event.status = "queued"  # Retry
+                queued_event.assigned_engine_id = None
+                queued_event.assigned_at = None
+                event_instance.status = "pending"
+        elif status_update.status == "processing":
+            queued_event.status = "processing"
+            event_instance.status = "processing"
+        
+        db.commit()
+        return {"status": "success", "message": f"Event status updated to {status_update.status}"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update event status: {str(e)}")
+
+
+# Health and Monitoring
+@router.get("/health/system")
+async def get_system_health(db: Session = Depends(get_db)) -> dict:
+    """Get overall system health status"""
+    try:
+        # Engine statistics
+        total_engines = db.query(EngineState).count()
+        healthy_engines = db.query(EngineState).filter(EngineState.status == "healthy").count()
+        degraded_engines = db.query(EngineState).filter(EngineState.status == "degraded").count()
+        unhealthy_engines = db.query(EngineState).filter(EngineState.status == "unhealthy").count()
+        
+        # Find stale engines (no heartbeat in last 5 minutes)
+        stale_threshold = datetime.utcnow() - timedelta(minutes=5)
+        stale_engines = db.query(EngineState).filter(
+            EngineState.last_heartbeat < stale_threshold
+        ).count()
+        
+        # Event queue statistics
+        queued_events = db.query(QueuedEvent).filter(QueuedEvent.status == "queued").count()
+        processing_events = db.query(QueuedEvent).filter(QueuedEvent.status == "processing").count()
+        failed_events = db.query(QueuedEvent).filter(QueuedEvent.status == "failed").count()
+        
+        # Determine overall system health
+        if healthy_engines == 0:
+            system_health = "critical"
+        elif unhealthy_engines > healthy_engines:
+            system_health = "degraded"
+        elif stale_engines > 0 or degraded_engines > 0:
+            system_health = "degraded"
+        else:
+            system_health = "healthy"
+        
+        return {
+            "system_health": system_health,
+            "timestamp": datetime.utcnow().isoformat(),
+            "engines": {
+                "total": total_engines,
+                "healthy": healthy_engines,
+                "degraded": degraded_engines,
+                "unhealthy": unhealthy_engines,
+                "stale": stale_engines
+            },
+            "events": {
+                "queued": queued_events,
+                "processing": processing_events,
+                "failed": failed_events
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get system health: {str(e)}")
+
+
+@router.get("/metrics/{engine_id}")
+async def get_engine_metrics(
+    engine_id: str,
+    db: Session = Depends(get_db)
+) -> dict:
+    """Get detailed metrics for a specific engine"""
     engine = db.query(EngineState).filter(EngineState.id == engine_id).first()
     if not engine:
         raise HTTPException(status_code=404, detail="Engine instance not found")
     
-    # Release expired locks first
-    expired_time = datetime.utcnow()
-    expired_events = db.query(EventInstance).filter(
-        EventInstance.lock_until < expired_time,
-        EventInstance.status == "processing"
-    ).all()
-    
-    for event in expired_events:
-        event.status = "queued"
-        event.locked_by = None
-        event.lock_until = None
-    
-    # Get available events
-    query = (
-        db.query(EventInstance)
-        .join(EventType)
-        .filter(
-            EventType.engine_type == engine_type,
-            EventInstance.status.in_(["queued", "retry"]),
-            or_(
-                EventInstance.lock_until.is_(None),
-                EventInstance.lock_until < datetime.utcnow()
-            )
-        )
-    )
-    
-    # Filter by capabilities if provided
-    if capabilities:
-        # Check if engine has required capabilities
-        engine_capabilities = engine.engine_metadata.get("static_config", {}).get("capabilities", [])
-        for cap in capabilities:
-            if cap not in engine_capabilities:
-                return []  # Engine doesn't have required capabilities
-    
-    events = (
-        query.order_by(EventInstance.priority.desc(), EventInstance.created_at.asc())
-        .limit(max_events)
-        .all()
-    )
-    
-    # Lock the events for this engine (5 minute lock)
-    lock_until = datetime.utcnow() + timedelta(minutes=5)
-    for event in events:
-        event.status = "processing"
-        event.locked_by = engine_id
-        event.lock_until = lock_until
-        
-        # Track which engines have processed this event
-        if not event.processed_by_engines:
-            event.processed_by_engines = []
-        if engine_id not in event.processed_by_engines:
-            event.processed_by_engines.append(engine_id)
-    
-    db.commit()
-    return events
-
-
-@router.put("/events/{event_id}/status", response_model=dict[str, str])
-async def update_event_status(
-    event_id: int,
-    status_update: EventStatusUpdate,
-    engine_id: str,  # Required to verify ownership
-    db: Session = Depends(get_db)
-) -> dict[str, str]:
-    """Update event processing status"""
-    event = db.query(EventInstance).filter(EventInstance.id == event_id).first()
-    if not event:
-        raise HTTPException(status_code=404, detail="Event not found")
-    
-    # Verify the engine has the lock on this event
-    if event.locked_by != engine_id:
-        raise HTTPException(status_code=403, detail="Event not locked by this engine")
-    
-    if status_update.status == "failed":
-        # Handle retry logic
-        event.retry_count = (event.retry_count or 0) + 1
-        event.last_error = status_update.error
-        
-        # Check if max retries reached
-        max_retries = 3  # Could be configurable
-        if event.retry_count >= max_retries:
-            event.status = "failed"
-            event.locked_by = None
-            event.lock_until = None
-        else:
-            event.status = "retry"
-            event.locked_by = None
-            event.lock_until = None
-            # Set next retry time (exponential backoff)
-            retry_delay = min(60 * (2 ** event.retry_count), 3600)  # Max 1 hour
-            event.next_retry_time = datetime.utcnow() + timedelta(seconds=retry_delay)
-    
-    elif status_update.status == "completed":
-        event.status = "completed"
-        event.locked_by = None
-        event.lock_until = None
-        if status_update.result:
-            event.result = status_update.result
-        event.retry_count = 0
-    
-    else:
-        # Other status updates
-        event.status = status_update.status
-        if status_update.result:
-            event.result = status_update.result
-            
-    db.commit()
-    return {"status": "success", "message": f"Event status updated to {status_update.status}"}
-
-# Health check endpoint
-@router.get("/engine-instances/health")
-async def check_engine_health(db: Session = Depends(get_db)) -> dict:
-    """Check overall engine health"""
-    total_engines = db.query(EngineState).count()
-    active_engines = db.query(EngineState).filter(EngineState.status == "active").count()
-    
-    # Find engines with stale heartbeats (no heartbeat in last 5 minutes)
-    stale_threshold = datetime.utcnow() - timedelta(minutes=5)
-    stale_engines = db.query(EngineState).filter(
-        EngineState.last_heartbeat < stale_threshold
-    ).count()
-    
-    # Count queued events
-    queued_events = db.query(EventInstance).filter(
-        EventInstance.status.in_(["queued", "retry"])
+    # Get recent event processing stats
+    recent_events = db.query(QueuedEvent).filter(
+        QueuedEvent.assigned_engine_id == engine_id,
+        QueuedEvent.assigned_at >= datetime.utcnow() - timedelta(hours=1)
     ).count()
     
     return {
-        "total_engines": total_engines,
-        "active_engines": active_engines,
-        "stale_engines": stale_engines,
-        "queued_events": queued_events,
-        "timestamp": datetime.utcnow().isoformat()
+        "engine_id": engine_id,
+        "engine_type": engine.engine_type,
+        "status": engine.status,
+        "current_workload": engine.current_workload,
+        "active_agents": engine.active_agents,
+        "processed_events_count": engine.processed_events_count,
+        "error_count": engine.error_count,
+        "recent_events_processed": recent_events,
+        "performance_metrics": engine.performance_metrics or {},
+        "last_heartbeat": engine.last_heartbeat.isoformat() if engine.last_heartbeat else None,
+        "uptime_hours": (datetime.utcnow() - engine.created_at).total_seconds() / 3600
     }

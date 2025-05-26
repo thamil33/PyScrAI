@@ -1,18 +1,5 @@
 ## PyScrAI Agno-to-Custom Framework Transition Plan
 
-### Immediate Fixes (Priority 1 - Complete Phase 1.2)
-
-1. __Fix Dependencies & Imports__
-
-   - Install missing `pydantic-settings`: `pip install pydantic-settings`
-   - Update `pyscrai/utils/config.py` to use correct field names matching settings
-   - Fix circular import issues in agent_runtime.py
-
-2. __Complete Agent-Engine Integration__
-
-   - Implement missing methods in `BaseEngine.run()` and `BaseEngine.shutdown()`
-   - Connect AgentRuntime to the orchestration system (EngineManager, EventBus)
-   - Add proper error handling and logging throughout the integration layer
 
 ### Phase 1.3 - Scenario Execution (Next Steps)
 
@@ -22,11 +9,6 @@
    - Implement event processing pipeline connecting scenarios → agents → engines
    - Add result aggregation and state persistence
 
-4. __LLM Integration Completion__
-
-   - Fix `llm_factory.py` to properly integrate with Agno models
-   - Update `BaseEngine` to use the LLM factory for actual AI responses
-   - Replace placeholder responses in Actor/Narrator/Analyst engines with real LLM calls
 
 ### Phase 2 - LLM Provider Framework (Medium Priority)
 

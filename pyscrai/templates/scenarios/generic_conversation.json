@@ -64,7 +64,7 @@
   },
   "event_flow": {
     "scenario_initialization": {
-      "type": "system",
+      "type": "trigger",
       "source": "system",
       "target": "all_agents",
       "data_schema": {
@@ -78,7 +78,7 @@
       }
     },
     "scene_setting": {
-      "type": "narrative",
+      "type": "state_change",
       "source": "narrator",
       "target": "all_agents",
       "data_schema": {
@@ -107,7 +107,7 @@
       }
     },
     "analysis_checkpoint": {
-      "type": "analysis",
+      "type": "state_change",
       "source": "analyst",
       "target": "system",
       "data_schema": {
@@ -122,7 +122,7 @@
       }
     },
     "scenario_conclusion": {
-      "type": "system",
+      "type": "trigger",
       "source": "system",
       "target": "all_agents",
       "data_schema": {

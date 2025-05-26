@@ -1,47 +1,146 @@
 """
-Database initialization and configuration
+PyScrAI Database Package - Universal Templates and Custom Engines
+
+This package provides database models, configuration, and utilities for the PyScrAI system
+with support for universal generic templates and custom engines (Actor, Analyst, Narrator).
 """
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from pathlib import Path
-import os
-from .models import Base
+# Ensure models are only imported once
+from .models import (
+    Base,
+    # Core template models
+    AgentTemplate,
+    ScenarioTemplate,
+    # Execution models
+    AgentInstance,
+    ScenarioRun,
+    EventType,
+    EventInstance,
+    ExecutionLog,
+    EngineState,
+    QueuedEvent,
+    SystemMetrics,
+    TemplateUsage
+)
 
-# Get database path
-project_root = Path(__file__).parent.parent.parent
-data_dir = project_root / "data"
-data_dir.mkdir(exist_ok=True)
-db_path = data_dir / "pyscrai.db"
+from .database import (
+    engine,
+    SessionLocal,
+    get_db,
+    get_db_session,
+    init_database,
+    reset_database,
+    get_database_info,
+    DATABASE_URL,
+    DB_PATH
+)
 
-# Create engine
-DATABASE_URL = f"sqlite:///{db_path}"
-engine = create_engine(DATABASE_URL, echo=True)
+# Version and metadata
+__version__ = "2.0.0"
+__description__ = "PyScrAI Database Layer - Universal Templates and Custom Engines"
 
-# Create session factory
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Export all public interfaces
+__all__ = [
+    # Database configuration and utilities
+    "engine",
+    "SessionLocal", 
+    "get_db",
+    "get_db_session",
+    "init_database",
+    "reset_database",
+    "get_database_info",
+    "DATABASE_URL",
+    "DB_PATH",
+    
+    # Models
+    "Base",
+    "AgentTemplate",
+    "ScenarioTemplate", 
+    "AgentInstance",
+    "ScenarioRun",
+    "EventType",
+    "EventInstance",
+    "ExecutionLog",
+    "EngineState",
+    "QueuedEvent",
+    "SystemMetrics",
+    "TemplateUsage",
+    
+    # Metadata
+    "__version__",
+    "__description__"
+]
 
 
-def init_database():
-    """Initialize the database with all tables"""
-    print(f"Initializing database at: {db_path}")
-    Base.metadata.create_all(bind=engine)
-    print("Database initialized successfully!")
-
-
-def get_db():
-    """Dependency for getting database session"""
-    db = SessionLocal()
+def initialize_system():
+    """
+    Initialize the complete PyScrAI database system
+    
+    This function:
+    1. Creates all database tables
+    2. Seeds initial data
+    3. Validates the system is ready
+    
+    Returns:
+        bool: True if initialization successful
+    """
     try:
-        yield db
-    finally:
-        db.close()
+        print("🚀 Initializing PyScrAI Database System...")
+        print(f"📍 Database location: {DB_PATH}")
+        
+        # Initialize database
+        init_database()
+        
+        # Get system info
+        info = get_database_info()
+        
+        print("✅ Database initialization completed!")
+        print(f"📊 System ready with {sum(info['table_counts'].values())} total records")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Database initialization failed: {e}")
+        return False
 
 
-def get_db_session():
-    """Get a database session (for direct usage)"""
-    return SessionLocal()
+def get_system_status():
+    """
+    Get comprehensive system status
+    
+    Returns:
+        dict: System status information
+    """
+    try:
+        info = get_database_info()
+        
+        status = {
+            "database_ready": info.get("database_exists", False),
+            "database_path": info.get("database_path"),
+            "total_records": sum(info.get("table_counts", {}).values()),
+            "table_counts": info.get("table_counts", {}),
+            "system_health": "healthy" if info.get("database_exists") else "needs_initialization"
+        }
+        
+        return status
+        
+    except Exception as e:
+        return {
+            "database_ready": False,
+            "error": str(e),
+            "system_health": "error"
+        }
 
 
 if __name__ == "__main__":
-    init_database()
+    # Initialize system when run directly
+    success = initialize_system()
+    
+    if success:
+        status = get_system_status()
+        print("\n📋 System Status:")
+        print(f"   Health: {status['system_health']}")
+        print(f"   Total Records: {status['total_records']}")
+        print(f"   Database Ready: {status['database_ready']}")
+    else:
+        print("\n❌ System initialization failed!")

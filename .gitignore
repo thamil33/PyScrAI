@@ -59,6 +59,11 @@ data.db
 *.db
 .ipynb_checkpoints/
 
+# Database files
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
 # Documentation
 docs/Agno&OpenRouter_FullDocs/
 .docs/

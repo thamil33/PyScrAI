@@ -57,7 +57,13 @@ class TemplateManager:
         """
         try:
             self._validate_agent_template(template_data.model_dump())
-            db_template = AgentTemplate(**template_data.model_dump())
+            
+            # Convert template data and handle enum conversion
+            template_dict = template_data.model_dump()
+            if 'engine_type' in template_dict and hasattr(template_dict['engine_type'], 'value'):
+                template_dict['engine_type'] = template_dict['engine_type'].value
+            
+            db_template = AgentTemplate(**template_dict)
             self.db.add(db_template)
             self.db.commit()
             self.db.refresh(db_template)
@@ -380,3 +386,19 @@ class TemplateManager:
             return self.create_scenario_template(template_create)
         except Exception as e:
             raise ValueError(f"Invalid template data: {str(e)}")
+    
+    def validate_scenario_template(self, template_data: dict) -> None:
+        """Validate a scenario template using ScenarioTemplateValidator.
+
+        Args:
+            template_data (dict): The scenario template data to validate.
+
+        Raises:
+            ValueError: If the template data is invalid.
+        """
+        from ..databases.models.template_validators import ScenarioTemplateValidator
+
+        try:
+            ScenarioTemplateValidator(**template_data)
+        except Exception as e:
+            raise ValueError(f"Invalid scenario template: {str(e)}")

@@ -4,14 +4,12 @@ FastAPI application setup
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes.engine import router as engine_router
-from .routes.templates import router as template_router
-from .routes.scenarios import router as scenario_router
+from .engine_endpoints import router as engine_router
 
 app = FastAPI(
     title="PyScrAI Engine API",
     description="API for PyScrAI engine management and event processing",
-    version="1.0.0"
+    version="0.1.0"
 )
 
 # Add CORS middleware
@@ -25,11 +23,13 @@ app.add_middleware(
 
 # Include routers
 app.include_router(engine_router, tags=["engines"])
-app.include_router(template_router, tags=["templates"])
-app.include_router(scenario_router, tags=["scenarios"])
 
 @app.get("/")
 async def root():
+    return {
+        "status": "ok",
+        "message": "PyScrAI Engine API is running"
+    }
     return {
         "status": "ok",
         "message": "PyScrAI Engine API is running"
