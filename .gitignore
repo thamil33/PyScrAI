@@ -1,74 +1,74 @@
-# See https://help.github.com/ignore-files/ for more about ignoring files.
+# Operating System
 .DS_Store
-infra
-# Python cache
-.mypy_cache
+
+# GitHub
+.github/
+
+# IDEs & Editors
+.idea/
+.vscode/
+*.code-workspace
+
+# Python bytecode & cache
+__pycache__/
 *__pycache__*
-*.egg-info
-*.pyc
-*.pytest_cache
-*.ruff_cache
+*.py[cod]
+*.pyo
+*.pyd
+
+# Python packaging
+*.egg-info/
+build/
+dist/
+*.whl
+
+# Python tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.cache/
 *.cache*
 *.config*
 
+# Virtual environments
+.venv*/
+venv*/
+perfenv*/
+agnoenv*/
+aienv*/
+phienv*/
 
-# Machine specific
-.idea
-.vscode
-*.code-workspace
-# __init__.py
-
-# Ignore .env files
+# Environment files
 .env
-
-# Ignore .envrc files (used by direnv: https://direnv.net/)
 .envrc
 
+# Certificates
 certs/
 
-# ignore storage dir
-/storage
-.images
-/qdrant_storage
+# Infrastructure & work-in-progress
+infra/
+wip/
 
-# ignore wip dir
-wip
-
-# ignore dist dir
-dist
-
-# ignore virtualenvs
-.venv*
-.perfenv*
-venv*
-agnoenv*
-aienv*
-phienv*
-
-# ignore tmp dirs
-scratch
-junk
-tmp
-
-# Exclude external dependencies and docs
-# agno/
-docs/Agno&OpenRouter_FullDocs/
+# Storage & data
+/storage/
+qdrant_storage/
+images/
+audio_generations/
 agents.db
 data.db
-.ipynb_checkpoints
-build
-audio_generations
-
 *.db
-.copilotignore
-# Google OAuth token
-token.json
+.ipynb_checkpoints/
 
+# Documentation
+docs/Agno&OpenRouter_FullDocs/
+.docs/
+
+# Miscellaneous
+scratch/
+junk/
+tmp/
 .composio.lock
-
-# Coverage
-coverage_report
-.coverage
-.docs
+.copilotignore
 .editorconfig
-.github
+coverage_report/
+.coverage

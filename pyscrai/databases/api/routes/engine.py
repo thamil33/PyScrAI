@@ -2,12 +2,13 @@
 API routes for engine management and event processing
 """
 import uuid
-from datetime import datetime
-from typing import List
+from datetime import datetime, timedelta
+from typing import List, Optional
 
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import and_, or_
 
 from ...database import get_db
 from ...models.schemas import (
@@ -102,50 +103,113 @@ async def deregister_engine(
     if not engine:
         raise HTTPException(status_code=404, detail="Engine instance not found")
     
+    # Release any locked events before deregistering
+    locked_events = db.query(EventInstance).filter(
+        EventInstance.locked_by == engine_id,
+        EventInstance.status == "processing"
+    ).all()
+    
+    for event in locked_events:
+        event.status = "queued"
+        event.locked_by = None
+        event.lock_until = None
+    
     db.delete(engine)
     db.commit()
     return {"status": "success", "message": "Engine instance deregistered"}
+
+@router.get("/engine-instances", response_model=List[EngineStateResponse])
+async def list_engine_instances(db: Session = Depends(get_db)) -> List[EngineStateResponse]:
+    """List all engine instances"""
+    engines = db.query(EngineState).all()
+    return engines
+
+@router.get("/engine-instances/{engine_id}", response_model=EngineStateResponse)
+async def get_engine_instance(engine_id: str, db: Session = Depends(get_db)) -> EngineStateResponse:
+    """Get engine instance by ID"""
+    engine = db.query(EngineState).filter(EngineState.id == engine_id).first()
+    if not engine:
+        raise HTTPException(status_code=404, detail="Engine instance not found")
+    return engine
 
 # Event Management Endpoints
 @router.get("/events/queue/{engine_type}", response_model=list[QueuedEventResponse])
 async def get_events_queue(
     engine_type: str,
-    max_events: int = 10,
-    capabilities: list[str] = [],
+    engine_id: str,  # Required for locking mechanism
+    max_events: int = 5,  # Default to 5 as per Engine Team Communication
+    capabilities: Optional[List[str]] = None,
     db: Session = Depends(get_db)
 ) -> list[QueuedEventResponse]:
-    """Get events from queue for processing"""
-    # Get events that match the engine type and haven't been processed
+    """Get events from queue for processing with locking mechanism"""
+    
+    # Verify engine exists
+    engine = db.query(EngineState).filter(EngineState.id == engine_id).first()
+    if not engine:
+        raise HTTPException(status_code=404, detail="Engine instance not found")
+    
+    # Release expired locks first
+    expired_time = datetime.utcnow()
+    expired_events = db.query(EventInstance).filter(
+        EventInstance.lock_until < expired_time,
+        EventInstance.status == "processing"
+    ).all()
+    
+    for event in expired_events:
+        event.status = "queued"
+        event.locked_by = None
+        event.lock_until = None
+    
+    # Get available events
     query = (
         db.query(EventInstance)
         .join(EventType)
         .filter(
             EventType.engine_type == engine_type,
             EventInstance.status.in_(["queued", "retry"]),
+            or_(
+                EventInstance.lock_until.is_(None),
+                EventInstance.lock_until < datetime.utcnow()
+            )
         )
     )
-    # Filter events by capabilities if provided
+    
+    # Filter by capabilities if provided
     if capabilities:
-        # Assuming event data has a 'required_capabilities' field listing needed capabilities
-        query = query.filter(
-            EventInstance.data["required_capabilities"].astext.cast("jsonb").contains(capabilities)
-        )
-    # Exclude events already processed by any engine
-    query = query.filter(
-        (EventInstance.processed_by_engines.is_(None) | (EventInstance.processed_by_engines == []))
-    )
+        # Check if engine has required capabilities
+        engine_capabilities = engine.engine_metadata.get("static_config", {}).get("capabilities", [])
+        for cap in capabilities:
+            if cap not in engine_capabilities:
+                return []  # Engine doesn't have required capabilities
+    
     events = (
         query.order_by(EventInstance.priority.desc(), EventInstance.created_at.asc())
         .limit(max_events)
         .all()
     )
-    return events  # Return all available events, empty list if none
+    
+    # Lock the events for this engine (5 minute lock)
+    lock_until = datetime.utcnow() + timedelta(minutes=5)
+    for event in events:
+        event.status = "processing"
+        event.locked_by = engine_id
+        event.lock_until = lock_until
+        
+        # Track which engines have processed this event
+        if not event.processed_by_engines:
+            event.processed_by_engines = []
+        if engine_id not in event.processed_by_engines:
+            event.processed_by_engines.append(engine_id)
+    
+    db.commit()
+    return events
 
 
 @router.put("/events/{event_id}/status", response_model=dict[str, str])
 async def update_event_status(
     event_id: int,
     status_update: EventStatusUpdate,
+    engine_id: str,  # Required to verify ownership
     db: Session = Depends(get_db)
 ) -> dict[str, str]:
     """Update event processing status"""
@@ -153,32 +217,68 @@ async def update_event_status(
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     
+    # Verify the engine has the lock on this event
+    if event.locked_by != engine_id:
+        raise HTTPException(status_code=403, detail="Event not locked by this engine")
+    
     if status_update.status == "failed":
         # Handle retry logic
-        if not event.processed_by_engines:
-            event.processed_by_engines = []
-        
-        # Increment retry count
         event.retry_count = (event.retry_count or 0) + 1
+        event.last_error = status_update.error
         
-        # Check if max retries reached (3 for now)
-        if event.retry_count >= 3:
+        # Check if max retries reached
+        max_retries = 3  # Could be configurable
+        if event.retry_count >= max_retries:
             event.status = "failed"
-            event.last_error = status_update.error
-            # Remove from queue by clearing processed_by_engines to prevent re-queuing
-            event.processed_by_engines = []
+            event.locked_by = None
+            event.lock_until = None
         else:
             event.status = "retry"
-            event.last_error = status_update.error
+            event.locked_by = None
+            event.lock_until = None
+            # Set next retry time (exponential backoff)
+            retry_delay = min(60 * (2 ** event.retry_count), 3600)  # Max 1 hour
+            event.next_retry_time = datetime.utcnow() + timedelta(seconds=retry_delay)
+    
+    elif status_update.status == "completed":
+        event.status = "completed"
+        event.locked_by = None
+        event.lock_until = None
+        if status_update.result:
+            event.result = status_update.result
+        event.retry_count = 0
+    
     else:
+        # Other status updates
         event.status = status_update.status
         if status_update.result:
             event.result = status_update.result
-        # Reset retry count on success or other non-failed status
-        event.retry_count = 0
-        # Clear processed_by_engines on success to allow re-queuing if needed
-        event.processed_by_engines = []
             
     db.commit()
-    db.refresh(event)
-    return {"status": "success"}
+    return {"status": "success", "message": f"Event status updated to {status_update.status}"}
+
+# Health check endpoint
+@router.get("/engine-instances/health")
+async def check_engine_health(db: Session = Depends(get_db)) -> dict:
+    """Check overall engine health"""
+    total_engines = db.query(EngineState).count()
+    active_engines = db.query(EngineState).filter(EngineState.status == "active").count()
+    
+    # Find engines with stale heartbeats (no heartbeat in last 5 minutes)
+    stale_threshold = datetime.utcnow() - timedelta(minutes=5)
+    stale_engines = db.query(EngineState).filter(
+        EngineState.last_heartbeat < stale_threshold
+    ).count()
+    
+    # Count queued events
+    queued_events = db.query(EventInstance).filter(
+        EventInstance.status.in_(["queued", "retry"])
+    ).count()
+    
+    return {
+        "total_engines": total_engines,
+        "active_engines": active_engines,
+        "stale_engines": stale_engines,
+        "queued_events": queued_events,
+        "timestamp": datetime.utcnow().isoformat()
+    }

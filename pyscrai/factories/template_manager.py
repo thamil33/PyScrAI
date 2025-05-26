@@ -52,13 +52,12 @@ class TemplateManager:
             
         Returns:
             The created AgentTemplate
-            
-        Raises:
+              Raises:
             ValueError: If template data is invalid
         """
         try:
-            self._validate_agent_template(template_data.dict())
-            db_template = AgentTemplate(**template_data.dict())
+            self._validate_agent_template(template_data.model_dump())
+            db_template = AgentTemplate(**template_data.model_dump())
             self.db.add(db_template)
             self.db.commit()
             self.db.refresh(db_template)
@@ -113,10 +112,9 @@ class TemplateManager:
         template = self.get_agent_template(template_id)
         if not template:
             return None
-        
-        # Create a merged dict of existing and update data for validation
+          # Create a merged dict of existing and update data for validation
         merged_data = template.__dict__.copy()
-        update_dict = update_data.dict(exclude_unset=True)
+        update_dict = update_data.model_dump(exclude_unset=True)
         merged_data.update(update_dict)
         
         # Validate the merged data
@@ -172,13 +170,12 @@ class TemplateManager:
             
         Returns:
             The created ScenarioTemplate
-            
-        Raises:
+              Raises:
             ValueError: If template data is invalid
         """
         try:
-            self._validate_scenario_template(template_data.dict())
-            db_template = ScenarioTemplate(**template_data.dict())
+            self._validate_scenario_template(template_data.model_dump())
+            db_template = ScenarioTemplate(**template_data.model_dump())
             self.db.add(db_template)
             self.db.commit()
             self.db.refresh(db_template)
@@ -215,10 +212,9 @@ class TemplateManager:
         template = self.get_scenario_template(template_id)
         if not template:
             return None
-        
-        # Create a merged dict of existing and update data for validation
+          # Create a merged dict of existing and update data for validation
         merged_data = template.__dict__.copy()
-        update_dict = update_data.dict(exclude_unset=True)
+        update_dict = update_data.model_dump(exclude_unset=True)
         merged_data.update(update_dict)
         
         # Validate the merged data
@@ -242,14 +238,27 @@ class TemplateManager:
             raise ValueError(f"Failed to update template: {str(e)}")
     
     def delete_scenario_template(self, template_id: int) -> bool:
-        """Delete a scenario template"""
+        """Delete a scenario template
+        
+        Args:
+            template_id: The ID of the template to delete
+            
+        Returns:
+            True if template was deleted, False if template not found
+            
+        Raises:
+            ValueError: If deletion fails
+        """
         template = self.get_scenario_template(template_id)
         if not template:
             return False
-        
-        self.db.delete(template)
-        self.db.commit()
-        return True
+        try:
+            self.db.delete(template)
+            self.db.commit()
+            return True
+        except Exception as e:
+            self.db.rollback()
+            raise ValueError(f"Failed to delete template: {str(e)}")
     
     # Template Import/Export
     def export_agent_template_to_file(self, template_id: int, file_path: Path) -> None:
