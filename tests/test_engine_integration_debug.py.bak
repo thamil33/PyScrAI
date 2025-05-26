@@ -1,0 +1,40 @@
+# tests/test_engine_integration_debug.py
+"""
+Minimal test to debug import issues
+"""
+import pytest
+
+def test_basic():
+    """Basic test to verify pytest works"""
+    assert True
+
+# Comment out problematic imports one by one to isolate the issue
+try:
+    from pyscrai.engines.actor_engine import ActorEngine
+    print("✓ ActorEngine import successful")
+except ImportError as e:
+    print(f"✗ ActorEngine import failed: {e}")
+
+try:
+    from pyscrai.engines.base_engine import PYSCRAI_API_BASE_URL
+    print("✓ base_engine import successful")
+except ImportError as e:
+    print(f"✗ base_engine import failed: {e}")
+
+try:
+    from pyscrai.databases.models.schemas import EngineStateResponse, QueuedEventResponse
+    print("✓ schemas import successful")
+except ImportError as e:
+    print(f"✗ schemas import failed: {e}")
+
+try:
+    from agno.run.response import RunResponse
+    print("✓ agno import successful")
+except ImportError as e:
+    print(f"✗ agno import failed: {e}")
+
+try:
+    from pytest_httpx import HTTPXMock
+    print("✓ pytest_httpx import successful")
+except ImportError as e:
+    print(f"✗ pytest_httpx import failed: {e}")
