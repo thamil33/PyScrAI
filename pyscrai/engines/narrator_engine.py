@@ -4,17 +4,22 @@ NarratorEngine for PyScrAI.
 
 This engine is responsible for world-building, scene description,
 and providing narrative context. It extends the BaseEngine and
-utilizes an Agno Agent for LLM interactions.
+utilizes an Agno Agent for LLM interactions, configured with a specific narrative style.
 """
+import asyncio
+import logging
 import os
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
-from agno.agent import Agent
+from agno.agent import Agent # Base Agent for type hinting
 from agno.models.message import Message
-from agno.run.response import RunResponse
+from agno.run.response import RunResponse # To type hint agent responses
 
 from .base_engine import BaseEngine
+# from ..databases.models.schemas import QueuedEventResponse, EventStatusUpdate # For future use
 
+# Initialize a logger for this module
+logger = logging.getLogger(__name__)
 
 class NarratorEngine(BaseEngine):
     """
@@ -24,254 +29,225 @@ class NarratorEngine(BaseEngine):
         narrative_style (Optional[str]): A description of the narrator's style
                                          (e.g., "omniscient, descriptive",
                                          "first-person, mysterious").
-                                         This will be incorporated into the
-                                         Agno Agent's system message.
     """
 
     def __init__(
         self,
-        agent: Agent,
+        agent_config: Dict[str, Any],
         engine_id: Optional[str] = None,
         engine_name: Optional[str] = "NarratorEngine",
         description: Optional[str] = "Describes scenes and provides narrative context.",
         narrative_style: Optional[str] = "A clear and objective third-person omniscient narrator.",
+        storage_path: Optional[str] = None,
+        model_provider: str = "openrouter",
         **kwargs: Any,
     ):
         """
         Initializes the NarratorEngine.
 
         Args:
-            agent (Agent): The Agno Agent to be used for LLM interactions.
+            agent_config (Dict[str, Any]): Configuration for the Agno Agent.
             engine_id (Optional[str]): A unique identifier for the engine.
             engine_name (Optional[str]): The name of the engine.
             description (Optional[str]): A brief description of the engine's purpose.
             narrative_style (Optional[str]): Text describing the narrator's style.
+            storage_path (Optional[str]): Path for the agent's storage.
+            model_provider (str): The provider for the LLM model.
             **kwargs: Additional keyword arguments to pass to the BaseEngine.
         """
         super().__init__(
-            agent=agent,
+            agent_config=agent_config,
             engine_id=engine_id,
             engine_name=engine_name,
             description=description,
+            engine_type="Narrator", # Explicitly set engine type
+            storage_path=storage_path,
+            model_provider=model_provider,
             **kwargs,
         )
         self.narrative_style: Optional[str] = narrative_style
+        
+        # Store narrator-specific attributes in the shared state
+        self.state["narrative_style"] = self.narrative_style
+        
+        logger.info(f"NarratorEngine '{self.engine_name}' configured with style: '{self.narrative_style}'. Call initialize() to activate.")
 
-        # Configure the underlying Agno Agent with the narrative style
-        self._configure_agent_style()
+    async def initialize(self) -> None:
+        """
+        Initializes the NarratorEngine, including the underlying Agno agent
+        and its narrative style configuration.
+        """
+        if self.initialized:
+            logger.info(f"NarratorEngine '{self.engine_name}' already initialized.")
+            return
+
+        await super().initialize() # Creates and initializes self.agent
+        
+        if self.agent:
+            self._configure_agent_style()
+            logger.info(f"NarratorEngine '{self.engine_name}' fully initialized.")
+        else:
+            logger.error(f"Agent initialization failed for NarratorEngine '{self.engine_name}'. Narrative style not configured.")
 
     def _configure_agent_style(self) -> None:
         """
         Configures the underlying Agno Agent with the narrator's style.
+        This method should be called after the agent has been initialized.
         """
-        if self.agent is None:
-            self.logger.warning("Agno agent not initialized. Cannot configure narrative style.")
+        if not self.agent:
+            logger.warning(f"Agno agent not available for {self.engine_name}. Cannot configure narrative style.")
             return
 
-        base_system_message = self.agent.system_message or ""
-        if isinstance(base_system_message, Message):
-            base_system_message_content = base_system_message.get_content_as_str()
-        elif callable(base_system_message):
-            try:
-                base_system_message_content = base_system_message(agent=self.agent)
-            except TypeError:
-                base_system_message_content = base_system_message()
-        else:
-            base_system_message_content = str(base_system_message)
+        base_system_message_content = ""
+        if self.agent.system_message:
+            if isinstance(self.agent.system_message, Message):
+                base_system_message_content = self.agent.system_message.get_content_as_str()
+            elif callable(self.agent.system_message):
+                try:
+                    base_system_message_content = self.agent.system_message(agent=self.agent)
+                except TypeError:
+                    base_system_message_content = self.agent.system_message()
+            else:
+                base_system_message_content = str(self.agent.system_message)
 
-        style_prompt = "You are the narrator. "
+        style_prompt = "You are the Narrator of a story or simulation. Your role is to describe scenes, events, character actions, and provide overall context to create an immersive experience."
         if self.narrative_style:
-            style_prompt += f"Your narrative style is: {self.narrative_style}. "
-        style_prompt += "Describe scenes, events, and provide context accordingly."
+            style_prompt += f" Your specific narrative style is: {self.narrative_style}."
+        style_prompt += " Deliver your descriptions vividly and appropriately for the given situation."
 
-        if base_system_message_content:
-            self.agent.system_message = f"{style_prompt}\n\n{base_system_message_content}"
+        if base_system_message_content and base_system_message_content.strip():
+            self.agent.system_message = f"{style_prompt}\n\nOriginal context: {base_system_message_content}"
         else:
             self.agent.system_message = style_prompt
         
-        self.logger.info(f"Configured narrative style for {self.engine_name}.")
-        self.logger.debug(f"New system message for NarratorEngine: {self.agent.system_message}")
+        logger.info(f"Configured narrative style for {self.engine_name}.")
+        logger.debug(f"New system message for {self.engine_name}: {self.agent.system_message}")
 
-    def process_event(
-        self, event_type: str, event_data: Dict[str, Any], **kwargs: Any
-    ) -> Optional[RunResponse]:
+    def _setup_tools(self) -> List[Any]:
         """
-        Processes an event and generates a narrative description.
-
-        Args:
-            event_type (str): The type of event (e.g., "describe_scene", "narrate_action").
-            event_data (Dict[str, Any]): Data associated with the event.
-                                         Expected to contain 'prompt' for the LLM.
-            **kwargs: Additional keyword arguments for the Agno Agent's run method.
+        Sets up tools specific to the NarratorEngine.
+        For example, tools to access world state, character locations, or time of day.
+        Currently, no narrator-specific tools are defined.
 
         Returns:
-            Optional[RunResponse]: The response from the Agno Agent, or None if an error occurs.
+            List[Any]: An empty list of tools.
         """
-        self.logger.info(f"{self.engine_name} processing event: {event_type}")
-        self.logger.debug(f"Event data: {event_data}")
+        # Example:
+        # from agno.tools.function import FunctionTool
+        # def get_current_time_func() -> str:
+        #     """Returns the current in-simulation time."""
+        #     return self.state.get("simulation_time", "an unknown time")
+        # time_tool = FunctionTool(fn=get_current_time_func)
+        # return [time_tool]
+        logger.debug(f"NarratorEngine '{self.engine_name}' setup tools: None")
+        return []
 
-        if self.agent is None:
-            self.logger.error("Agno agent not initialized for NarratorEngine.")
-            return None
-
-        prompt = event_data.get("prompt")
-        if not prompt:
-            self.logger.warning("No 'prompt' found in event_data for NarratorEngine.")
-            return None
-
-        # The prompt here is what the narrator should describe or elaborate on.
-        # The narrative style is handled by the agent's system message.
-        message_to_agent = f"Narrate the following: {prompt}"
-
-        try:
-            response = self.agent.run(message=message_to_agent, **kwargs)
-            self.logger.debug(f"Narrator raw response: {response.content if response else 'None'}") # type: ignore
-            return response # type: ignore
-        except Exception as e:
-            self.logger.error(f"Error during {self.engine_name} run: {e}")
-            return None
-
-    async def aprocess_event(
-        self, event_type: str, event_data: Dict[str, Any], **kwargs: Any
-    ) -> Optional[RunResponse]:
+    async def process(self, event_payload: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
         """
-        Asynchronously processes an event and generates a narrative description.
+        Processes an event payload and generates a narrative description.
 
         Args:
-            event_type (str): The type of event.
-            event_data (Dict[str, Any]): Data associated with the event.
+            event_payload (Dict[str, Any]): Data associated with the event.
+                                         Expected to contain 'prompt' for the LLM,
+                                         which details what needs to be narrated.
             **kwargs: Additional keyword arguments for the Agno Agent's arun method.
 
         Returns:
-            Optional[RunResponse]: The asynchronous response from the Agno Agent.
+            Dict[str, Any]: A dictionary containing the 'content' of the narration
+                            and any 'error' messages.
         """
-        self.logger.info(f"{self.engine_name} asynchronously processing event: {event_type}")
-        self.logger.debug(f"Async event data: {event_data}")
+        if not self.initialized or not self.agent:
+            logger.error(f"NarratorEngine '{self.engine_name}' not initialized. Cannot process event.")
+            return {"content": None, "error": "Engine not initialized"}
 
-        if self.agent is None:
-            self.logger.error("Agno agent not initialized for NarratorEngine (async).")
-            return None
+        logger.info(f"{self.engine_name} processing event payload for narration.")
+        logger.debug(f"Event payload: {event_payload}")
 
-        prompt = event_data.get("prompt")
-        if not prompt:
-            self.logger.warning("No 'prompt' found in event_data for NarratorEngine (async).")
-            return None
+        prompt_for_narration = event_payload.get("prompt")
+        if not prompt_for_narration:
+            logger.warning("No 'prompt' found in event_payload for NarratorEngine.")
+            return {"content": None, "error": "No prompt provided in event payload for narration"}
 
-        message_to_agent = f"Narrate the following: {prompt}"
+        # The narrative style is handled by the agent's system message.
+        # The prompt is the direct input detailing what the narrator should describe.
+        message_to_agent = f"Please narrate the following situation or event: {prompt_for_narration}"
 
         try:
-            response = await self.agent.arun(message=message_to_agent, **kwargs)
-            self.logger.debug(f"Narrator async raw response: {response.content if response else 'None'}") # type: ignore
-            return response # type: ignore
+            response: Optional[RunResponse] = await self.agent.arun(message=message_to_agent, **kwargs)
+            
+            if response and response.content:
+                logger.debug(f"{self.engine_name} raw narration response: {response.content[:200]}...") # Log snippet
+                return {"content": response.content, "error": None}
+            else:
+                logger.warning(f"{self.engine_name} produced no content in narration response.")
+                return {"content": None, "error": "Agent produced no content for narration"}
         except Exception as e:
-            self.logger.error(f"Error during async {self.engine_name} run: {e}")
-            return None
+            logger.error(f"Error during {self.engine_name} narration run: {e}", exc_info=True)
+            return {"content": None, "error": str(e)}
 
-    def get_state(self) -> Dict[str, Any]:
-        """
-        Gets the current state of the NarratorEngine.
+async def main_narrator_example():
+    """Example usage of the NarratorEngine."""
+    if not os.getenv("OPENAI_API_KEY") and not os.getenv("OPENROUTER_API_KEY"):
+        print("Error: OPENAI_API_KEY or OPENROUTER_API_KEY not found.")
+        return
 
-        Returns:
-            Dict[str, Any]: The current state of the engine.
-        """
-        base_state = super().get_state()
-        base_state.update(
-            {
-                "narrative_style": self.narrative_style,
-                # Potentially add more narrator-specific state here
-            }
-        )
-        return base_state
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-    def load_state(self, state: Dict[str, Any]) -> None:
-        """
-        Loads the state into the NarratorEngine.
+    narrator_agent_config = {
+        "model_config": {
+            "id": "openai/gpt-3.5-turbo", # "meta-llama/llama-3.1-8b-instruct:free", 
+            "temperature": 0.8, # Slightly higher for more creative narration
+        },
+        "personality_config": {
+            "name": "Storyteller AI",
+            "description": "An AI agent that narrates events and scenes.",
+            "instructions": "You are a helpful AI assistant.", # Base instructions
+        },
+    }
 
-        Args:
-            state (Dict[str, Any]): The state to load.
-        """
-        super().load_state(state)
-        self.narrative_style = state.get("narrative_style", self.narrative_style)
-        # Re-configure style in case it was loaded
-        self._configure_agent_style()
-        self.logger.info(f"Loaded state for {self.engine_name}.")
+    story_narrator = NarratorEngine(
+        agent_config=narrator_agent_config,
+        engine_name="WorldNarrator",
+        narrative_style="dramatic and suspenseful, with a focus on atmosphere and character emotions.",
+        description="Narrates the simulation, focusing on drama and atmosphere.",
+        storage_path="narrator_engine_storage.db",
+        model_provider="openrouter"
+    )
+
+    await story_narrator.initialize()
+
+    if not story_narrator.initialized or not story_narrator.agent:
+        logger.error("Failed to initialize story_narrator. Exiting example.")
+        return
+
+    scene_description_prompt = "The old mansion stands silhouetted against a stormy sky. Rain lashes down, and a lone light flickers in an upstairs window. Describe the sense of foreboding."
+    event_payload_scene = {"prompt": scene_description_prompt}
+    
+    logger.info(f"\n--- Simulating narration event for {story_narrator.engine_name} ---")
+    narration_result = await story_narrator.process(event_payload_scene)
+
+    if narration_result["content"]:
+        logger.info(f"\n{story_narrator.engine_name} narrates:\n{narration_result['content']}")
+    else:
+        logger.error(f"\n{story_narrator.engine_name} had no narration or an error occurred: {narration_result['error']}")
+    
+    # State export/import example
+    exported_state = story_narrator.export_state()
+    logger.info(f"\n--- Exported NarratorEngine State ---\n{exported_state}")
+
+    new_narrator_config = narrator_agent_config.copy()
+    loaded_narrator = NarratorEngine(
+        agent_config=new_narrator_config,
+        storage_path="loaded_narrator_storage.db"
+    )
+    loaded_narrator.import_state(exported_state)
+    await loaded_narrator.initialize()
+
+    logger.info(f"Loaded narrator style: {loaded_narrator.state.get('narrative_style')}")
+    logger.info(f"Loaded narrator system prompt: {loaded_narrator.agent.system_message if loaded_narrator.agent else 'Agent not loaded'}")
 
 
 if __name__ == "__main__":
-    # This is a simple example of how to use the NarratorEngine.
-
-    # --- Configuration ---
-    # 1. Configure the LLM model (e.g., OpenAI)
-    try:
-        from agno.models.openai import OpenAIChat
-        if not os.getenv("OPENAI_API_KEY"):
-            print("Error: OPENAI_API_KEY not found in environment variables.")
-            print("Please set it to run this example: export OPENAI_API_KEY='your_key_here'")
-            exit()
-        llm_model = OpenAIChat(model="gpt-3.5-turbo")
-    except ImportError:
-        print("OpenAI library not found. Please install it: pip install openai")
-        exit()
-    except Exception as e:
-        print(f"Failed to initialize OpenAI model: {e}")
-        exit()
-
-    # 2. Create an Agno Agent
-    narrator_agent = Agent(
-        model=llm_model,
-        debug_mode=True,
-        system_message="You are a storyteller."
-    )
-
-    # 3. Create a NarratorEngine instance
-    story_narrator = NarratorEngine(
-        agent=narrator_agent,
-        engine_name="StoryNarrator",
-        narrative_style="epic and grand, focusing on sensory details and foreshadowing.",
-        description="Narrates the unfolding events of a fantasy epic.",
-    )
-
-    # --- Simulate an event ---
-    print(f"\n--- Simulating event for {story_narrator.engine_name} ---")
-    event_data_scene = {"prompt": "The heroes enter a dark, ancient forest. Describe what they see, hear, and feel."}
-    
-    # Synchronous example
-    response = story_narrator.process_event("describe_scene", event_data_scene)
-
-    if response and response.content:
-        print(f"\n{story_narrator.engine_name} narrates: {response.content}")
-    else:
-        print(f"\n{story_narrator.engine_name} had no response or an error occurred.")
-
-    # --- Example of saving and loading state (simplified) ---
-    print("\n--- Saving and Loading State Example ---")
-    current_state = story_narrator.get_state()
-    print(f"Saved state: {current_state}")
-
-    # Create a new engine instance and load state
-    new_narrator_agent = Agent(model=llm_model)
-    loaded_narrator = NarratorEngine(agent=new_narrator_agent)
-    loaded_narrator.load_state(current_state)
-    print(f"Loaded narrator name: {loaded_narrator.engine_name}")
-    print(f"Loaded narrative style: {loaded_narrator.narrative_style}")
-
-    # Test the loaded narrator
-    event_data_action = {"prompt": "A sudden storm begins to brew overhead as the old bridge creaks ominously."}
-    loaded_response = loaded_narrator.process_event("narrate_action", event_data_action)
-    if loaded_response and loaded_response.content:
-        print(f"\nLoaded {loaded_narrator.engine_name} narrates: {loaded_response.content}")
-    else:
-        print(f"\nLoaded {loaded_narrator.engine_name} had no response or an error occurred.")
-
-    # Asynchronous example (requires an event loop to run)
-    async def run_async_example():
-        print(f"\n--- Simulating async event for {story_narrator.engine_name} ---")
-        async_response = await story_narrator.aprocess_event("describe_scene", event_data_scene)
-        if async_response and async_response.content:
-            print(f"\nAsync {story_narrator.engine_name} narrates: {async_response.content}")
-        else:
-            print(f"\nAsync {story_narrator.engine_name} had no response or an error occurred.")
-
-    # To run the async example:
-    # import asyncio
-    # asyncio.run(run_async_example())
+    logging.basicConfig(level=logging.DEBUG, 
+                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    asyncio.run(main_narrator_example())
