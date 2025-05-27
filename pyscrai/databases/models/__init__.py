@@ -6,9 +6,8 @@ Database models for PyScrAI - Universal Templates and Custom Engines
 from .base import Base
 
 # Then import models in dependency order
-from .core_models import *
-from .execution_models import *
-# from .workflow_models import *
+from .core_models import AgentTemplate, ScenarioTemplate, AgentInstance, ScenarioRun
+from .execution_models import EventType, EventInstance, ExecutionLog, EngineState, QueuedEvent, SystemMetrics, TemplateUsage
 
 # Export all models for easy importing
 __all__ = [

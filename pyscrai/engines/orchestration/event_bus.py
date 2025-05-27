@@ -4,6 +4,15 @@ from collections import defaultdict
 from typing import Callable, Any, DefaultDict
 
 class EventBus:
+    async def publish_event(self, event_type: str, event_data: Any = None):
+        """
+        Asynchronously publish an event to all subscribers.
+        Args:
+            event_type (str): The type of event to publish.
+            event_data (Any, optional): The data to pass to the event callbacks. Defaults to None.
+        """
+        # For now, just call the synchronous publish method
+        self.publish(event_type, event_data)
     """
     A simple publish-subscribesystem for inter-engine communication.
     Allows different parts of the system to communicate without direct dependencies.

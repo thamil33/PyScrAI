@@ -19,20 +19,35 @@ class StateManager:
         self._lock = Lock() # For thread-safe operations on shared state
         print("StateManager initialized.")
 
-    def initialize_scenario_state(self, scenario_id: str, initial_state: Optional[Dict[str, Any]] = None):
+    def create_scenario_state(self, scenario_id: int) -> None:
         """
-        Initializes or resets the state for a given scenario.
+        Create a new state container for a scenario.
+        
         Args:
-            scenario_id (str): The unique identifier for the scenario.
-            initial_state (Optional[Dict[str, Any]], optional): An initial dictionary of state variables.
-                                                              Defaults to None (empty state).
+            scenario_id: ID of the scenario
         """
-        if not scenario_id:
-            raise ValueError("Scenario ID cannot be empty.")
         with self._lock:
-            self.scenario_states[scenario_id] = initial_state if initial_state is not None else {}
-            print(f"State initialized for scenario '{scenario_id}'.")
-
+            scenario_key = str(scenario_id)
+            if scenario_key not in self.scenario_states:
+                self.scenario_states[scenario_key] = {}
+                print(f"Created state container for scenario {scenario_id}")
+    
+    def initialize_scenario_state(self, scenario_id: int, initial_state: Dict[str, Any]) -> None:
+        """
+        Initialize a scenario's state with provided values.
+        
+        Args:
+            scenario_id: ID of the scenario
+            initial_state: Initial state values to set
+        """
+        with self._lock:
+            scenario_key = str(scenario_id)
+            if scenario_key not in self.scenario_states:
+                self.scenario_states[scenario_key] = {}
+                
+            self.scenario_states[scenario_key].update(initial_state)
+            print(f"Initialized state for scenario {scenario_id}")
+    
     def update_scenario_state(self, scenario_id: str, key: str, value: Any):
         """
         Updates a specific key in the state for a given scenario.
@@ -54,6 +69,24 @@ class StateManager:
             self.scenario_states[scenario_id][key] = value
             print(f"Scenario '{scenario_id}' state updated: '{key}' = '{str(value)[:50]}...'")
 
+    def get_scenario_state(self, scenario_id: int) -> Dict[str, Any]:
+        """
+        Get the current state of a scenario.
+        
+        Args:
+            scenario_id: ID of the scenario
+            
+        Returns:
+            Dictionary with the scenario's current state
+        """
+        with self._lock:
+            scenario_key = str(scenario_id)
+            if scenario_key not in self.scenario_states:
+                return {}
+                
+            # Return a copy to avoid external modification
+            return dict(self.scenario_states[scenario_key])
+    
     def get_scenario_state(self, scenario_id: str, key: str, default: Any = None) -> Any:
         """
         Retrieves a specific key from the state of a given scenario.
@@ -83,6 +116,48 @@ class StateManager:
             if scenario_id in self.scenario_states:
                 return self.scenario_states[scenario_id].copy()
             return None
+
+    def update_scenario_state(self, scenario_id: int, state_updates: Dict[str, Any]) -> None:
+        """
+        Update a scenario's state with new values.
+        
+        Args:
+            scenario_id: ID of the scenario
+            state_updates: State values to update
+        """
+        with self._lock:
+            scenario_key = str(scenario_id)
+            if scenario_key not in self.scenario_states:
+                self.scenario_states[scenario_key] = {}
+                
+            self.scenario_states[scenario_key].update(state_updates)
+            print(f"Updated state for scenario {scenario_id}")
+    
+    def restore_scenario_state(self, scenario_id: int, state_snapshot: Dict[str, Any]) -> None:
+        """
+        Restore a scenario's state from a saved snapshot.
+        
+        Args:
+            scenario_id: ID of the scenario
+            state_snapshot: Snapshot of the state to restore
+        """
+        with self._lock:
+            scenario_key = str(scenario_id)
+            self.scenario_states[scenario_key] = dict(state_snapshot)
+            print(f"Restored state for scenario {scenario_id}")
+    
+    def remove_scenario_state(self, scenario_id: int) -> None:
+        """
+        Remove a scenario's state from memory.
+        
+        Args:
+            scenario_id: ID of the scenario
+        """
+        with self._lock:
+            scenario_key = str(scenario_id)
+            if scenario_key in self.scenario_states:
+                del self.scenario_states[scenario_key]
+                print(f"Removed state for scenario {scenario_id}")
 
     def delete_scenario_state(self, scenario_id: str):
         """

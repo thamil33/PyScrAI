@@ -1,89 +1,84 @@
-"""
-Core database models for agents and scenarios
-"""
-
-from datetime import datetime
+# pyscrai/databases/models/core_models.py
 from sqlalchemy import Column, Integer, String, DateTime, Text, JSON, ForeignKey
 from sqlalchemy.orm import relationship
-from .base import Base
+from .base import Base # Assuming Base is defined in base.py in the same directory
+import datetime # It seems you're using datetime.utcnow, so ensure datetime is imported
 
+# Your full package path to models might be slightly different if 'pyscrai' is not the top-level
+# directory Python sees for imports, but assuming it is:
+CORE_MODELS_PATH = "pyscrai.databases.models.core_models"
+EXECUTION_MODELS_PATH = "pyscrai.databases.models.execution_models"
 
 class AgentTemplate(Base):
-    """Template for creating agents with specific personalities and behaviors"""
     __tablename__ = "agent_templates"
-    __table_args__ = {'extend_existing': True}
+    __table_args__ = {'extend_existing': True} # This is fine
     
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False, unique=True)
     description = Column(Text)
-    engine_type = Column(String(50), nullable=False)  # actor, analyst, narrator
-    personality_config = Column(JSON)  # Personality traits, instructions, etc.
-    llm_config = Column(JSON)  # Model settings (temperature, etc.)
-    tools_config = Column(JSON)  # Available tools
-    runtime_overrides = Column(JSON)  # Runtime override policies
-    engine_specific_config = Column(JSON)  # Engine-specific configuration
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    engine_type = Column(String(50), nullable=False)
+    personality_config = Column(JSON)
+    llm_config = Column(JSON)
+    tools_config = Column(JSON)
+    runtime_overrides = Column(JSON)
+    engine_specific_config = Column(JSON)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     
-    # Relationships
-    agent_instances = relationship("AgentInstance", back_populates="template", cascade="all, delete-orphan")
-
+    agent_instances = relationship(f"{CORE_MODELS_PATH}.AgentInstance", back_populates="template", cascade="all, delete-orphan")
 
 class ScenarioTemplate(Base):
-    """Template for scenarios with agent configurations and flow"""
     __tablename__ = "scenario_templates"
-    __table_args__ = {'extend_existing': True}
+    __table_args__ = {'extend_existing': True} # This is fine
     
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False, unique=True)
     description = Column(Text)
-    config = Column(JSON)  # Scenario configuration
-    agent_roles = Column(JSON)  # Required agent roles and their templates
-    event_flow = Column(JSON)  # Predefined event sequence
-    runtime_customization = Column(JSON)  # Runtime customization options
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    config = Column(JSON)
+    agent_roles = Column(JSON)
+    event_flow = Column(JSON)
+    runtime_customization = Column(JSON)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     
-    # Relationships
-    scenario_runs = relationship("ScenarioRun", back_populates="template", cascade="all, delete-orphan")
-
+    scenario_runs = relationship(f"{CORE_MODELS_PATH}.ScenarioRun", back_populates="template", cascade="all, delete-orphan")
 
 class AgentInstance(Base):
-    """Runtime instance of an agent created from a template"""
     __tablename__ = "agent_instances"
+    # If AgentInstance also had __table_args__ with extend_existing=True, ensure it's there.
+    # Otherwise, if it's defined only once, it's not needed.
     
     id = Column(Integer, primary_key=True)
-    template_id = Column(Integer, ForeignKey("agent_templates.id"))
-    scenario_run_id = Column(Integer, ForeignKey("scenario_runs.id"))
+    template_id = Column(Integer, ForeignKey("agent_templates.id")) # Use fully qualified FK
+    scenario_run_id = Column(Integer, ForeignKey("scenario_runs.id")) # Use fully qualified FK
     instance_name = Column(String(100))
-    runtime_config = Column(JSON)  # Override configurations
-    state = Column(JSON)  # Current agent state
-    created_at = Column(DateTime, default=datetime.utcnow)
+    runtime_config = Column(JSON)
+    state = Column(JSON)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
     
-    # Relationships
-    template = relationship("AgentTemplate", back_populates="agent_instances")
-    scenario_run = relationship("ScenarioRun", back_populates="agent_instances")
-    logs = relationship("ExecutionLog", back_populates="agent_instance", cascade="all, delete-orphan")
-    sent_events = relationship("EventInstance", foreign_keys="[EventInstance.source_agent_id]", back_populates="source_agent", cascade="all, delete-orphan")
-    received_events = relationship("EventInstance", foreign_keys="[EventInstance.target_agent_id]", back_populates="target_agent", cascade="all, delete-orphan")
-
+    template = relationship(f"{CORE_MODELS_PATH}.AgentTemplate", back_populates="agent_instances")
+    scenario_run = relationship(f"{CORE_MODELS_PATH}.ScenarioRun", back_populates="agent_instances")
+    
+    logs = relationship(f"{EXECUTION_MODELS_PATH}.ExecutionLog", back_populates="agent_instance", cascade="all, delete-orphan")
+    # For EventInstance, ensure its foreign keys are also fully qualified if they refer to this table by string
+    sent_events = relationship(f"{EXECUTION_MODELS_PATH}.EventInstance", foreign_keys=f"[{EXECUTION_MODELS_PATH}.EventInstance.source_agent_id]", back_populates="source_agent", cascade="all, delete-orphan")
+    received_events = relationship(f"{EXECUTION_MODELS_PATH}.EventInstance", foreign_keys=f"[{EXECUTION_MODELS_PATH}.EventInstance.target_agent_id]", back_populates="target_agent", cascade="all, delete-orphan")
 
 class ScenarioRun(Base):
-    """Execution instance of a scenario"""
     __tablename__ = "scenario_runs"
+    # If ScenarioRun also had __table_args__ with extend_existing=True, ensure it's there.
     
     id = Column(Integer, primary_key=True)
-    template_id = Column(Integer, ForeignKey("scenario_templates.id"))
+    template_id = Column(Integer, ForeignKey("scenario_templates.id")) # Use fully qualified FK
     name = Column(String(100))
-    status = Column(String(20), default="pending")  # pending, running, completed, failed
-    config = Column(JSON)  # Runtime configuration
-    results = Column(JSON)  # Execution results
+    status = Column(String(20), default="pending")
+    config = Column(JSON)
+    results = Column(JSON)
     started_at = Column(DateTime)
     completed_at = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
     
-    # Relationships
-    template = relationship("ScenarioTemplate", back_populates="scenario_runs")
-    agent_instances = relationship("AgentInstance", back_populates="scenario_run", cascade="all, delete-orphan")
-    events = relationship("EventInstance", back_populates="scenario_run", cascade="all, delete-orphan")
-    logs = relationship("ExecutionLog", back_populates="scenario_run", cascade="all, delete-orphan")
+    template = relationship(f"{CORE_MODELS_PATH}.ScenarioTemplate", back_populates="scenario_runs")
+    agent_instances = relationship(f"{CORE_MODELS_PATH}.AgentInstance", back_populates="scenario_run", cascade="all, delete-orphan")
+    events = relationship(f"{EXECUTION_MODELS_PATH}.EventInstance", back_populates="scenario_run", cascade="all, delete-orphan")
+    logs = relationship(f"{EXECUTION_MODELS_PATH}.ExecutionLog", back_populates="scenario_run", cascade="all, delete-orphan")

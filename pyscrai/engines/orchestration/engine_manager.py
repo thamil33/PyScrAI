@@ -293,6 +293,158 @@ class EngineManager:
         
         logger.info("EngineManager shutdown complete")
 
+    def register_scenario(self, scenario_run_id: int, agent_instances: List[Any]) -> None:
+        """
+        Register a scenario and its agent instances with the engine manager.
+        
+        Args:
+            scenario_run_id: ID of the scenario run
+            agent_instances: List of agent instances associated with this scenario
+        """
+        logger.info(f"Registering scenario {scenario_run_id} with {len(agent_instances)} agents")
+        
+        # Add to scenario engines tracking
+        self.scenario_engines[str(scenario_run_id)] = [instance.id for instance in agent_instances]
+        
+        # Initialize agents with the agent runtime
+        for instance in agent_instances:
+            self.agent_runtime.register_agent_instance(instance)
+            
+        # Initialize scenario state
+        self.state_manager.create_scenario_state(scenario_run_id)
+        
+        logger.info(f"Successfully registered scenario {scenario_run_id}")
+        
+    async def queue_event(
+        self, 
+        scenario_run_id: int, 
+        event_type: str, 
+        event_data: Dict[str, Any],
+        source_agent_id: Optional[int] = None,
+        target_agent_id: Optional[int] = None,
+        priority: int = 5
+    ) -> int:
+        """
+        Queue an event for processing in a scenario.
+        
+        Args:
+            scenario_run_id: ID of the scenario run
+            event_type: Type of event to queue
+            event_data: Event payload/data
+            source_agent_id: Optional ID of the source agent
+            target_agent_id: Optional ID of the target agent
+            priority: Event processing priority (1-10)
+            
+        Returns:
+            ID of the created event instance
+        """
+        # Create event in database
+        from ...databases.models import EventType, EventInstance
+        
+        # Get event type from database
+        event_type_obj = self.db.query(EventType).filter(EventType.name == event_type).first()
+        if not event_type_obj:
+            raise ValueError(f"Event type '{event_type}' not found")
+            
+        # Create event instance
+        event_instance = EventInstance(
+            event_type_id=event_type_obj.id,
+            scenario_run_id=scenario_run_id,
+            agent_instance_id=target_agent_id,
+            source_agent_id=source_agent_id,
+            target_agent_id=target_agent_id,
+            data=event_data,
+            status="pending",
+            priority=priority
+        )
+        
+        self.db.add(event_instance)
+        self.db.commit()
+        self.db.refresh(event_instance)
+        
+        # Publish to event bus
+        await self.event_bus.publish_event(
+            event_type=event_type,
+            event_data={
+                "event_instance_id": event_instance.id,
+                "scenario_run_id": scenario_run_id,
+                "data": event_data,
+                "source_agent_id": source_agent_id,
+                "target_agent_id": target_agent_id
+            }
+        )
+        
+        logger.info(f"Queued event {event_instance.id} of type '{event_type}' for scenario {scenario_run_id}")
+        return event_instance.id
+        
+    async def get_event_queue_stats(self, scenario_run_id: int) -> Dict[str, Any]:
+        """
+        Get statistics about the event queue for a scenario.
+        
+        Args:
+            scenario_run_id: ID of the scenario run
+            
+        Returns:
+            Dictionary with event queue statistics
+        """
+        from ...databases.models import EventInstance
+        
+        # Count events by status
+        pending_count = self.db.query(EventInstance).filter(
+            EventInstance.scenario_run_id == scenario_run_id,
+            EventInstance.status == "pending"
+        ).count()
+        
+        processing_count = self.db.query(EventInstance).filter(
+            EventInstance.scenario_run_id == scenario_run_id,
+            EventInstance.status == "processing"
+        ).count()
+        
+        completed_count = self.db.query(EventInstance).filter(
+            EventInstance.scenario_run_id == scenario_run_id,
+            EventInstance.status == "completed"
+        ).count()
+        
+        failed_count = self.db.query(EventInstance).filter(
+            EventInstance.scenario_run_id == scenario_run_id,
+            EventInstance.status == "failed"
+        ).count()
+        
+        return {
+            "pending": pending_count,
+            "processing": processing_count,
+            "completed": completed_count,
+            "failed": failed_count,
+            "total": pending_count + processing_count + completed_count + failed_count
+        }
+        
+    async def cleanup_scenario(self, scenario_run_id: int) -> None:
+        """
+        Clean up resources associated with a scenario.
+        
+        Args:
+            scenario_run_id: ID of the scenario to clean up
+        """
+        scenario_run_id_str = str(scenario_run_id)
+        
+        if scenario_run_id_str in self.scenario_engines:
+            # Get agent instances
+            agent_instance_ids = self.scenario_engines[scenario_run_id_str]
+            
+            # Unregister each agent
+            for agent_id in agent_instance_ids:
+                self.agent_runtime.unregister_agent_instance(agent_id)
+                
+            # Clean up scenario state
+            self.state_manager.remove_scenario_state(scenario_run_id)
+            
+            # Remove from tracking
+            del self.scenario_engines[scenario_run_id_str]
+            
+            logger.info(f"Cleaned up resources for scenario {scenario_run_id}")
+        else:
+            logger.warning(f"Scenario {scenario_run_id} not found in engine manager")
+
 if __name__ == '__main__':
     # This section is for basic testing and demonstration.
     # It will be expanded or moved to a dedicated test file.
