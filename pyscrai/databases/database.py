@@ -131,86 +131,196 @@ def init_database():
 
 def _seed_initial_data(EventTypeModel):
     """
-    Seeds the database with initial data, like default EventTypes.
-    This function can be expanded to seed other essential data.
+    Seeds the database with initial data, like default EventTypes and templates.
+    
+    This function:
+    1. Seeds event types if the table is empty
+    2. Imports agent templates from pyscrai/templates/agents
+    3. Imports scenario templates from pyscrai/templates/scenarios
+    4. Imports event type definitions from pyscrai/templates/events
 
     Args:
         EventTypeModel: The SQLAlchemy model class for EventType.
     """
     db = get_db_session()
     try:
+        # --- Step 1: Seed Event Types ---
         # Check if EventTypes already exist
-        if db.query(EventTypeModel).count() > 0:
-            logger.info("Initial EventType data already exists, skipping seeding.")
-            return
+        if db.query(EventTypeModel).count() == 0:
+            logger.info("Seeding initial EventType data...")
+            # Default event types (fallback)
+            basic_event_types_data = [
+                {
+                    "name": "agent_message", "description": "Message sent by an agent",
+                    "event_category": "interaction",
+                    "data_schema": {"type": "object", "properties": {"content": {"type": "string"}}}
+                },
+                {
+                    "name": "system_notification", "description": "System-level notification",
+                    "event_category": "system",
+                    "data_schema": {"type": "object", "properties": {"message": {"type": "string"}}}
+                },
+                {
+                    "name": "narrative_event", "description": "Narrative progression event",
+                    "event_category": "narrative",
+                    "data_schema": {"type": "object", "properties": {"description": {"type": "string"}}}
+                },
+            ]
+              # Try to load event types from template/events directory
+            events_dir = PROJECT_ROOT / "pyscrai" / "templates" / "events"
+            if events_dir.exists() and events_dir.is_dir():
+                event_json_files = list(events_dir.glob("*.json"))
+                if event_json_files:
+                    logger.info(f"Found {len(event_json_files)} event type definition files in {events_dir}")
+                    basic_event_types_data = []  # Clear default if we have files
+                    
+                    for event_file in event_json_files:
+                        try:
+                            with open(event_file, 'r') as f:
+                                event_data = json.load(f)
+                                # Handle both single event and array of events
+                                events_to_process = event_data if isinstance(event_data, list) else [event_data]
+                                
+                                for evt in events_to_process:
+                                    # Map fields to match the expected schema
+                                    # Convert 'schema' to 'data_schema'
+                                    if "schema" in evt and "data_schema" not in evt:
+                                        evt["data_schema"] = evt.pop("schema")
+                                    
+                                    # Convert 'category' to 'event_category'
+                                    if "category" in evt and "event_category" not in evt:
+                                        evt["event_category"] = evt.pop("category")
+                                    
+                                    # Remove fields that don't exist in the EventType model
+                                    if "is_core" in evt:
+                                        evt.pop("is_core")
+                                        
+                                basic_event_types_data.extend(events_to_process)
+                        except Exception as e:
+                            logger.error(f"Error loading event types from {event_file}: {e}")
 
-        logger.info("Seeding initial EventType data...")
-        # Define basic event types (example structure)
-        # You should load these from a more structured source like a JSON file for larger sets
-        basic_event_types_data = [
-            {
-                "name": "agent_message", "description": "Message sent by an agent",
-                "event_category": "interaction",
-                "data_schema": {"type": "object", "properties": {"content": {"type": "string"}}}
-            },
-            {
-                "name": "system_notification", "description": "System-level notification",
-                "event_category": "system",
-                "data_schema": {"type": "object", "properties": {"message": {"type": "string"}}}
-            },
-            {
-                "name": "narrative_event", "description": "Narrative progression event",
-                "event_category": "narrative",
-                "data_schema": {"type": "object", "properties": {"description": {"type": "string"}}}
-            },
-            # Add more predefined event types as needed from pyscrai/databases/seeds/event_types.json
-        ]
-        
-        # Consider loading from pyscrai/databases/seeds/event_types.json
-        # import json
-        # event_types_seed_file = PROJECT_ROOT / "pyscrai" / "databases" / "seeds" / "event_types.json"
-        # if event_types_seed_file.exists():
-        #     with open(event_types_seed_file, 'r') as f:
-        #         basic_event_types_data = json.load(f)
-        # else:
-        #     logger.warning(f"Event types seed file not found at {event_types_seed_file}, using hardcoded defaults.")
-
-
-        for event_data in basic_event_types_data:
-            # Ensure data_schema is a dict if it's a string (e.g. from JSON)
-            if isinstance(event_data.get("data_schema"), str):
-                try:
-                    event_data["data_schema"] = json.loads(event_data["data_schema"])
-                except json.JSONDecodeError:
-                    logger.error(f"Error decoding data_schema for event {event_data.get('name')}")
-                    event_data["data_schema"] = {} # Default to empty schema on error
+            # Create event type records
+            for event_data in basic_event_types_data:
+                # Ensure data_schema is a dict if it's a string
+                if isinstance(event_data.get("data_schema"), str):
+                    try:
+                        event_data["data_schema"] = json.loads(event_data["data_schema"])
+                    except json.JSONDecodeError:
+                        logger.error(f"Error decoding data_schema for event {event_data.get('name')}")
+                        event_data["data_schema"] = {}  # Default to empty schema on error
+                
+                event_type = EventTypeModel(**event_data)
+                db.add(event_type)
             
-            event_type = EventTypeModel(**event_data)
-            db.add(event_type)
-
-        db.commit()
-        logger.info(f"Seeded {len(basic_event_types_data)} basic event types.")
+            db.commit()
+            logger.info(f"Seeded {len(basic_event_types_data)} event types.")
+        else:
+            logger.info("Event types already exist, skipping seeding.")
+        
+        # --- Step 2: Import templates from pyscrai/templates directory ---
+        # Import necessary modules for templates
+        from ..factories.template_manager import TemplateManager
+        from ..databases.models import AgentTemplate, ScenarioTemplate
+        from ..databases.models.schemas import AgentTemplateCreate, ScenarioTemplateCreate
+        
+        # Initialize template manager with our session
+        template_manager = TemplateManager(db)
+        
+        # Set paths to template directories
+        templates_root = PROJECT_ROOT / "pyscrai" / "templates"
+        agent_templates_dir = templates_root / "agents"
+        scenario_templates_dir = templates_root / "scenarios"
+        
+        # --- Step 3: Import Agent Templates ---
+        if agent_templates_dir.exists() and agent_templates_dir.is_dir():
+            agent_json_files = list(agent_templates_dir.glob("*.json"))
+            if agent_json_files:
+                logger.info(f"Found {len(agent_json_files)} agent template files")
+                imported_count = 0
+                
+                for agent_file in agent_json_files:
+                    try:
+                        # Check if template with this name already exists
+                        with open(agent_file, 'r') as f:
+                            data = json.load(f)
+                        
+                        if "name" not in data:
+                            logger.warning(f"Agent template in {agent_file} has no name field, skipping")
+                            continue
+                        existing = template_manager.get_agent_template_by_name(data["name"])
+                        if existing:
+                            logger.info(f"Agent template '{data['name']}' already exists, skipping import")
+                            continue
+                        
+                        # Import template
+                        template = template_manager.import_agent_template_from_file(agent_file)
+                        logger.info(f"Imported agent template: {template.name} (ID: {template.id}, Type: {template.engine_type})")
+                        imported_count += 1
+                    except ValueError as e:
+                        logger.error(f"Validation error importing agent template {agent_file.name}: {e}")
+                    except IOError as e:
+                        logger.error(f"File read error importing agent template {agent_file.name}: {e}")
+                    except Exception as e:
+                        logger.error(f"Failed to import agent template {agent_file.name}: {str(e)}")
+                
+                logger.info(f"Imported {imported_count} new agent templates")
+        
+        # --- Step 4: Import Scenario Templates ---
+        if scenario_templates_dir.exists() and scenario_templates_dir.is_dir():
+            scenario_json_files = list(scenario_templates_dir.glob("*.json"))
+            if scenario_json_files:
+                logger.info(f"Found {len(scenario_json_files)} scenario template files")
+                imported_count = 0
+                
+                for scenario_file in scenario_json_files:
+                    try:
+                        # Check if template with this name already exists
+                        with open(scenario_file, 'r') as f:
+                            data = json.load(f)
+                        
+                        if "name" not in data:
+                            logger.warning(f"Scenario template in {scenario_file} has no name field, skipping")
+                            continue
+                            
+                        existing = template_manager.get_scenario_template_by_name(data["name"])
+                        if existing:
+                            logger.info(f"Scenario template '{data['name']}' already exists, skipping import")
+                            continue
+                        
+                        # Import template
+                        template = template_manager.import_scenario_template_from_file(scenario_file)
+                        logger.info(f"Imported scenario template: {template.name}")
+                        imported_count += 1
+                    except Exception as e:
+                        logger.error(f"Failed to import scenario template {scenario_file}: {e}")
+                
+                logger.info(f"Imported {imported_count} new scenario templates")
 
     except Exception as e:
-        logger.error(f"Failed to seed initial EventType data: {e}", exc_info=True)
+        logger.error(f"Failed to seed database: {e}", exc_info=True)
         db.rollback()
     finally:
         db.close()
 
-def reset_database():
+def reset_database(skip_confirmation: bool = False):
     """
     Resets the database by dropping and recreating all tables.
     WARNING: This will delete all existing data in the database!
+    
+    Args:
+        skip_confirmation (bool): If True, skip the confirmation prompt
+                                  Only use this in non-interactive scripts or with explicit warning
     """
     from .models import Base # Local import
 
     logger.warning(f"Resetting database at {DB_PATH} - ALL DATA WILL BE LOST!")
-    # In a non-interactive script, you might want to remove this input
-    # or make it configurable via a command-line argument.
-    confirmation = input("Are you sure you want to reset the database? Type 'yes' to confirm: ")
-    if confirmation.lower() != 'yes':
-        logger.info("Database reset cancelled by user.")
-        return
+    
+    # Get confirmation unless skipping
+    if not skip_confirmation:
+        confirmation = input("Are you sure you want to reset the database? Type 'yes' to confirm: ")
+        if confirmation.lower() != 'yes':
+            logger.info("Database reset cancelled by user.")
+            return
 
     try:
         logger.info("Dropping all tables...")
@@ -273,39 +383,58 @@ def get_database_info() -> dict:
 
 # --- Main execution block for direct script running ---
 if __name__ == "__main__":
+    import argparse
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="PyScrAI Database Management")
+    parser.add_argument('--init', action='store_true', help='Initialize database without prompting')
+    parser.add_argument('--reset', action='store_true', help='Reset database without prompting (WARNING: deletes all data)')
+    parser.add_argument('--info', action='store_true', help='Display database information')
+    
+    args = parser.parse_args()
+    
     logger.info("Running database.py script directly...")
-
-    # Example: Initialize database if it doesn't exist or is empty
-    # More robust check might be needed depending on desired behavior
-    if not DB_PATH.exists():
-        logger.info(f"{DB_NAME} not found. Initializing database.")
+    
+    # Process command line arguments
+    if args.reset:
+        logger.warning("Resetting database without confirmation (--reset flag used)")
+        from .models import Base
+        Base.metadata.drop_all(bind=engine)
+        logger.info("All tables dropped successfully.")
         init_database()
+        logger.info("Database has been reset and re-initialized.")
+    
+    elif args.init:
+        logger.info("Initializing database without prompting (--init flag used)")
+        init_database()
+    
     else:
-        logger.info(f"Database {DB_NAME} already exists at {DB_PATH}.")
-        # Optionally, you could add a check here to see if tables exist
-        # and call init_database() if they don't. For example, by checking table counts.
-        db_info_check = get_database_info()
-        event_types_count = db_info_check.get("table_counts", {}).get("event_types")
-        core_tables_exist_and_populated = isinstance(event_types_count, int) and event_types_count > 0
-
-        if not db_info_check.get("table_counts") or not core_tables_exist_and_populated:
-            logger.info("Database exists but seems empty or core tables (like event_types) are missing/empty. Re-initializing.")
+        # Default behavior (no args or only --info)
+        # Initialize database if it doesn't exist or is empty
+        if not DB_PATH.exists():
+            logger.info(f"{DB_NAME} not found. Initializing database.")
             init_database()
+        else:
+            logger.info(f"Database {DB_NAME} already exists at {DB_PATH}.")
+            # Check if tables exist and have data
+            db_info_check = get_database_info()
+            event_types_count = db_info_check.get("table_counts", {}).get("event_types")
+            core_tables_exist_and_populated = isinstance(event_types_count, int) and event_types_count > 0
 
+            if not db_info_check.get("table_counts") or not core_tables_exist_and_populated:
+                logger.info("Database exists but seems empty or core tables are missing/empty. Re-initializing.")
+                init_database()
 
-    # Print database info
-    db_info = get_database_info()
-    print("\n--- PyScrAI Database Information ---")
-    print(f"  Path: {db_info.get('database_path')}")
-    print(f"  Exists: {db_info.get('database_exists')}")
-    if "error" in db_info:
-        print(f"  Error retrieving info: {db_info['error']}")
-    if db_info.get('table_counts'):
-        print("\n  Table Counts:")
-        for table, count in db_info['table_counts'].items():
-            print(f"    {table}: {count}")
-    print("------------------------------------")
-
-    # To reset the database, you would uncomment the following line
-    # and run the script. Be careful, as this deletes all data.
-    # reset_database()
+    # Print database info (always, or if --info flag is used)
+    if not args.init and not args.reset or args.info:
+        db_info = get_database_info()
+        print("\n--- PyScrAI Database Information ---")
+        print(f"  Path: {db_info.get('database_path')}")
+        print(f"  Exists: {db_info.get('database_exists')}")
+        if "error" in db_info:
+            print(f"  Error retrieving info: {db_info['error']}")
+        if db_info.get('table_counts'):
+            print("\n  Table Counts:")
+            for table, count in sorted(db_info['table_counts'].items()):
+                print(f"    {table}: {count}")
+        print("------------------------------------")

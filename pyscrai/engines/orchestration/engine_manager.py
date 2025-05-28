@@ -293,7 +293,7 @@ class EngineManager:
         
         logger.info("EngineManager shutdown complete")
 
-    def register_scenario(self, scenario_run_id: int, agent_instances: List[Any]) -> None:
+    async def register_scenario(self, scenario_run_id: int, agent_instances: List[Any]) -> None:
         """
         Register a scenario and its agent instances with the engine manager.
         
@@ -305,14 +305,14 @@ class EngineManager:
         
         # Add to scenario engines tracking
         self.scenario_engines[str(scenario_run_id)] = [instance.id for instance in agent_instances]
-        
-        # Initialize agents with the agent runtime
+
+        # Initialize agents with the agent runtime (await async startup)
         for instance in agent_instances:
-            self.agent_runtime.register_agent_instance(instance)
-            
+            await self.agent_runtime.start_agent(instance)
+
         # Initialize scenario state
         self.state_manager.create_scenario_state(scenario_run_id)
-        
+
         logger.info(f"Successfully registered scenario {scenario_run_id}")
         
     async def queue_event(
@@ -433,7 +433,7 @@ class EngineManager:
             
             # Unregister each agent
             for agent_id in agent_instance_ids:
-                self.agent_runtime.unregister_agent_instance(agent_id)
+                self.agent_runtime.stop_agent(agent_id)
                 
             # Clean up scenario state
             self.state_manager.remove_scenario_state(scenario_run_id)

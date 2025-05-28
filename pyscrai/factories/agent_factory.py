@@ -57,6 +57,9 @@ class AgentFactory:
     ) -> BaseEngine:
         """Create an engine from an agent instance"""
         
+        # If instance_id is an AgentInstance object, get its id
+        if isinstance(instance_id, AgentInstance):
+            instance_id = instance_id.id
         instance = self.db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
         if not instance:
             raise ValueError(f"Agent instance with ID {instance_id} not found")
@@ -141,6 +144,9 @@ class AgentFactory:
     
     def update_instance_state(self, instance_id: int, state_update: Dict[str, Any]) -> AgentInstance:
         """Update the state of an agent instance"""
+        # If instance_id is an AgentInstance object, get its id
+        if isinstance(instance_id, AgentInstance):
+            instance_id = instance_id.id
         instance = self.db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
         if not instance:
             raise ValueError(f"Agent instance with ID {instance_id} not found")
@@ -156,6 +162,9 @@ class AgentFactory:
     
     def get_instance(self, instance_id: int) -> Optional[AgentInstance]:
         """Get an agent instance by ID"""
+        # If instance_id is an AgentInstance object, get its id
+        if isinstance(instance_id, AgentInstance):
+            instance_id = instance_id.id
         return self.db.query(AgentInstance).filter(AgentInstance.id == instance_id).first()
     
     def list_instances_for_scenario(self, scenario_run_id: int) -> list[AgentInstance]:

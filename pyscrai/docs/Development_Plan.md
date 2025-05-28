@@ -41,9 +41,9 @@
 
 ### 2.2.1 Scenario Runner Integration
 **Files**: `pyscrai/engines/scenario_runner.py`
-- [ ] Fix integration with ScenarioFactory
-- [ ] Ensure agents are created and started properly
-- [ ] Connect to database for state persistence, scenario loading, and ORM
+- [x] Fix integration with ScenarioFactory
+- [x] Ensure agents are created and started properly
+- [x] Connect to database for state persistence, scenario loading, and ORM
 
 ### 2.2.2 Agent Interaction System
 **Files**: `pyscrai/engines/orchestration/engine_manager.py`

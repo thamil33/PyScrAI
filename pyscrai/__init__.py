@@ -1,8 +1,8 @@
 """
-PyScrAI: System Scenario AI
+PyScrAI:
 
-A simplified, leverage-based approach to AI scenario simulation 
-using the Agno Agent Framework.
+A refined approach for simulating AI scenarios via a modular and extensible framework.
+This package provides tools for creating, managing, and executing AI agents and rich scenarios. 
 """
 
 __version__ = "0.1.0"

@@ -1,0 +1,78 @@
+{
+    "name": "BasicAdventure",
+    "description": "A simple adventure scenario template for testing",
+    "config": {
+        "max_turns": 10,
+        "timeout_seconds": 3600,
+        "completion_conditions": {
+            "natural_conclusion": true,
+            "max_turns_reached": true
+        },
+        "error_handling": {
+            "retry_attempts": 3,
+            "fallback_responses": true,
+            "graceful_degradation": true
+        },
+        "interaction_rules": {
+            "turn_based": true,
+            "allow_interruptions": false,
+            "require_responses": true
+        }
+    },
+    "agent_roles": {
+        "narrator": {
+            "template_name": "Narrator Agent",
+            "engine_type": "narrator",
+            "required": true,
+            "role_config": {
+                "priority": "high",
+                "initialization_order": 1
+            }
+        },
+        "protagonist": {
+            "template_name": "Actor Agent",
+            "engine_type": "actor",
+            "required": true,
+            "role_config": {
+                "priority": "normal",
+                "initialization_order": 2,
+                "character_name": "Hero"
+            }
+        }
+    },
+    "event_flow": {
+        "scenario_start": {
+            "type": "trigger",
+            "source": "system",
+            "target": "narrator",
+            "conditions": {
+                "trigger": "scenario_start"
+            },
+            "data_schema": {
+                "context": "string"
+            }
+        },
+        "introduction": {
+            "type": "narrative",
+            "source": "narrator",
+            "target": "all",
+            "conditions": {
+                "trigger": "introduction_phase"
+            },
+            "data_schema": {
+                "narrative": "string"
+            }
+        }
+    },
+    "runtime_customization": {
+        "agent_personalities": "configurable",
+        "conversation_topic": "configurable",
+        "interaction_style": "configurable",
+        "completion_criteria": "configurable",
+        "custom_fields": {
+            "setting": "configurable",
+            "difficulty": "configurable",
+            "enemy_count": "configurable"
+        }
+    }
+}

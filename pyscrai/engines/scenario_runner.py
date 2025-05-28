@@ -114,21 +114,22 @@ class ScenarioRunner:
                 agent_instances.append(instance)
                 logger.info(f"Created agent instance {instance.id} for role '{role}'")
             
-            # Register this scenario with the engine manager for orchestration
-            self.engine_manager.register_scenario(scenario_run.id, agent_instances)
-            
-            # Start the scenario execution
-            await self._initialize_scenario_execution(scenario_run.id)
-            
-            # Track as active scenario
+            # Track as active scenario BEFORE initializing execution
             self.active_scenarios[scenario_run.id] = {
                 "scenario_run": scenario_run,
                 "agent_instances": agent_instances
             }
+
+            # Register this scenario with the engine manager for orchestration (await async)
+            await self.engine_manager.register_scenario(scenario_run.id, agent_instances)
+
+            # Start the scenario execution
+            await self._initialize_scenario_execution(scenario_run.id)
             
             # Update scenario status to 'running'
+            import datetime
             scenario_run.status = "running"
-            scenario_run.started_at = asyncio.get_event_loop().time()
+            scenario_run.started_at = datetime.datetime.now()
             self.db.commit()
             
             logger.info(f"Scenario run {scenario_run.id} started successfully")
