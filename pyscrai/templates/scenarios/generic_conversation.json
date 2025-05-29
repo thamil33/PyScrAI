@@ -1,5 +1,5 @@
 {
-  "name": "Generic Conversation",
+  "name": "GenericConversation",
   "description": "A flexible conversation scenario that can be adapted for various interaction types",
   "config": {
     "max_turns": 20,

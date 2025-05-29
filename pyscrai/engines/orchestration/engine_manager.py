@@ -306,7 +306,7 @@ class EngineManager:
         # Add to scenario engines tracking
         self.scenario_engines[str(scenario_run_id)] = [instance.id for instance in agent_instances]
 
-        # Initialize agents with the agent runtime (await async startup)
+        # Initialize agents with the agent runtimzzzzzze (await async startup)
         for instance in agent_instances:
             await self.agent_runtime.start_agent(instance)
 
