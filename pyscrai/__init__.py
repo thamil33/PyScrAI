@@ -7,10 +7,10 @@ This package provides tools for creating, managing, and executing AI agents and 
 
 __version__ = "0.1.0"
 
-from .databases import init_database, get_db, get_db_session
-from .factories import TemplateManager, AgentFactory, ScenarioFactory
-from .engines.base_engine import BaseEngine
-from .engines import (
+from pyscrai.databases import init_database, get_db, get_db_session
+from pyscrai.factories import TemplateManager, AgentFactory, ScenarioFactory
+from pyscrai.engines.base_engine import BaseEngine
+from pyscrai.engines import (
     ContextManager,
     GlobalMemorySystem,
     GlobalToolIntegration,

@@ -10,11 +10,11 @@ import logging
 from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
 
-from .agent_runtime import AgentRuntime
-from .context_manager import ContextManager
-from .memory_system import GlobalMemorySystem
-from .tool_integration import GlobalToolIntegration
-from ..databases.models import ScenarioRun, AgentInstance
+from pyscrai.engines.agent_runtime import AgentRuntime
+from pyscrai.engines.context_manager import ContextManager
+from pyscrai.engines.memory_system import GlobalMemorySystem
+from pyscrai.engines.tool_integration import GlobalToolIntegration
+from pyscrai.databases.models import ScenarioRun, AgentInstance
 
 
 class AgentEngineIntegration:

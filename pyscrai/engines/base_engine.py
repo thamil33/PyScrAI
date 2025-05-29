@@ -9,7 +9,7 @@ import logging
 import os
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable
 
 import httpx
 
@@ -63,13 +63,18 @@ class BaseEngine(ABC):
         self.api_base_url: str = api_base_url or PYSCRAI_API_BASE_URL
         self.http_client: Optional[httpx.AsyncClient] = None
         
+        # Event bus for inter-agent communication
+        self.event_bus = None
+        self.event_publisher: Optional[Callable] = None
+        
         # Store core attributes in state
         self.state.update({
             "engine_id": self.engine_id,
             "engine_name": self.engine_name,
             "engine_type": self.engine_type,
             "description": self.description,
-            "model_provider": self.model_provider
+            "model_provider": self.model_provider,
+            "instance_id": agent_config.get("instance_id")
         })
         
         self.logger.info(
@@ -209,3 +214,76 @@ class BaseEngine(ABC):
             "model_provider": self.model_provider,
             "initialized": self.initialized
         }
+
+    async def set_event_bus(self, event_bus) -> None:
+        """
+        Set the event bus for inter-agent communication.
+        
+        Args:
+            event_bus: EventBus instance for publishing events
+        """
+        self.event_bus = event_bus
+        self.logger.info("Event bus set for engine")
+    
+    async def set_event_publisher(self, publisher_func: Callable) -> None:
+        """
+        Set the event publisher function for the engine.
+        
+        Args:
+            publisher_func: Function to call for publishing events
+        """
+        self.event_publisher = publisher_func
+        self.logger.info("Event publisher function set")
+    
+    async def publish_action_output(
+        self, 
+        scenario_run_id: int,
+        output_type: str,
+        data: Dict[str, Any]
+    ) -> bool:
+        """
+        Publish an action output event to the event bus.
+        
+        Args:
+            scenario_run_id: ID of the scenario this event belongs to
+            output_type: Type of output (e.g., "message", "description")
+            data: Payload data for the event
+            
+        Returns:
+            True if event was published successfully
+        """
+        if not self.event_bus:
+            self.logger.error("Cannot publish event: Event bus not set")
+            return False
+        
+        agent_id = self.agent_config.get("instance_id")
+        if not agent_id:
+            self.logger.error("Cannot publish event: No agent instance ID in config")
+            return False
+        
+        # Create standard event payload
+        event_payload = {
+            "scenario_run_id": scenario_run_id,
+            "source_agent_id": agent_id,
+            "output_type": output_type,
+            "data": data
+        }
+        
+        # Publish to the event bus
+        self.event_bus.publish("agent.action.output", event_payload)
+        self.logger.info(f"Published {output_type} event for scenario {scenario_run_id}")
+        return True
+    
+    async def handle_delivered_event(self, event_type: str, event_data: Dict[str, Any]) -> None:
+        """
+        Handle an event delivered to this engine from another agent or the system.
+        
+        Args:
+            event_type: Type of event received
+            event_data: Event payload data
+        """
+        self.logger.info(f"Received event of type {event_type}")
+        
+        # BaseEngine doesn't have specific event handling logic
+        # Subclasses should override this with appropriate behavior
+        pass

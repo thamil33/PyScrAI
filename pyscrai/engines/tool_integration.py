@@ -10,10 +10,10 @@ import json
 import logging
 import inspect
 from typing import Dict, Any, Optional, List, Callable, Union
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
-from ..databases.models import AgentInstance, ExecutionLog
+from pyscrai.databases.models import AgentInstance, ExecutionLog
 
 
 class ToolDefinition:

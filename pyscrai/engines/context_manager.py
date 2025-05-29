@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List, Set
 from sqlalchemy.orm import Session
 
-from ..databases.models import ScenarioRun, AgentInstance, ExecutionLog
+from pyscrai.databases.models import ScenarioRun, AgentInstance, ExecutionLog
 
 
 class ContextManager:

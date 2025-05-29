@@ -8,8 +8,8 @@ uses our custom Agent-Engine Integration system.
 import logging
 from typing import Any, Dict, List, Optional
 
-from .base_engine import BaseEngine
-from ..factories.llm_factory import get_llm_instance
+from pyscrai.engines.base_engine import BaseEngine
+from pyscrai.factories.llm_factory import get_llm_instance
 
 # Initialize a logger for this module
 logger = logging.getLogger(__name__)

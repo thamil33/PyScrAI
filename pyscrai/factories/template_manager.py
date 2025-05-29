@@ -7,17 +7,17 @@ from sqlalchemy.orm import Session
 import json
 from pathlib import Path
 
-from ..databases.models import (
+from pyscrai.databases.models import (
     AgentTemplate, 
     ScenarioTemplate
 )
-from ..databases.models.schemas import (
+from pyscrai.databases.models.schemas import (
     AgentTemplateCreate, 
     ScenarioTemplateCreate,
     AgentTemplateUpdate,
     ScenarioTemplateUpdate
 )
-from ..databases.models.template_validators import (
+from pyscrai.databases.models.template_validators import (
     AgentTemplateValidator,
     ScenarioTemplateValidator
 )

@@ -10,11 +10,11 @@ import logging
 from typing import Dict, Any, Optional, List, Type
 from sqlalchemy.orm import Session
 
-from ..databases.models import AgentInstance, AgentTemplate, ScenarioRun
-from .base_engine import BaseEngine
-from .actor_engine import ActorEngine
-from .narrator_engine import NarratorEngine
-from .analyst_engine import AnalystEngine
+from pyscrai.databases.models import AgentInstance, AgentTemplate, ScenarioRun
+from pyscrai.engines.base_engine import BaseEngine
+from pyscrai.engines.actor_engine import ActorEngine
+from pyscrai.engines.narrator_engine import NarratorEngine
+from pyscrai.engines.analyst_engine import AnalystEngine
 
 
 class AgentRuntime:

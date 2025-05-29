@@ -10,9 +10,9 @@ import logging
 from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
 
-from ..databases.models import ScenarioRun, ScenarioTemplate, AgentInstance, AgentTemplate
-from ..factories.scenario_factory import ScenarioFactory
-from .orchestration.engine_manager import EngineManager
+from pyscrai.databases.models import ScenarioRun, ScenarioTemplate, AgentInstance, AgentTemplate
+from pyscrai.factories.scenario_factory import ScenarioFactory
+from pyscrai.engines.orchestration.engine_manager import EngineManager
 
 logger = logging.getLogger(__name__)
 

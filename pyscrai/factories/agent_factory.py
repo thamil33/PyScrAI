@@ -4,8 +4,8 @@ Agent factory for creating agent instances from templates
 
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
-from ..databases.models import AgentTemplate, AgentInstance, ScenarioRun
-from ..engines.base_engine import BaseEngine
+from pyscrai.databases.models import AgentTemplate, AgentInstance, ScenarioRun
+from pyscrai.engines.base_engine import BaseEngine
 
 
 class AgentFactory:

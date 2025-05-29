@@ -5,9 +5,9 @@ Scenario factory for creating scenario runs from templates
 from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
 from datetime import datetime
-from ..databases.models import ScenarioTemplate, ScenarioRun, AgentInstance
-from ..factories.agent_factory import AgentFactory
-from ..factories.template_manager import TemplateManager
+from pyscrai.databases.models import ScenarioTemplate, ScenarioRun, AgentInstance
+from pyscrai.factories.agent_factory import AgentFactory
+from pyscrai.factories.template_manager import TemplateManager
 
 
 class ScenarioFactory:

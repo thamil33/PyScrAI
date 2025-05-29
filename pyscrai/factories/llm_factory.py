@@ -4,8 +4,8 @@ Creates LLM instances using PyScrAI's native implementations without external de
 """
 from typing import Optional, Any, Dict
 
-from ..llm import BaseLLM, OpenRouterLLM, LMStudioLLM, MockLLM
-from ..utils.config import settings
+from pyscrai.llm import BaseLLM, OpenRouterLLM, LMStudioLLM, MockLLM
+from pyscrai.utils.config import settings
 
 
 def get_llm_instance(

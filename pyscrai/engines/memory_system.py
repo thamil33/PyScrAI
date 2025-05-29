@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, List, Union
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from ..databases.models import AgentInstance, ExecutionLog
+from pyscrai.databases.models import AgentInstance, ExecutionLog
 
 
 class MemoryEntry:

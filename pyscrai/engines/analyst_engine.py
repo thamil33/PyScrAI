@@ -7,7 +7,8 @@ and providing analytical perspectives on events and interactions.
 import logging
 from typing import Any, Dict, List, Optional
 
-from .base_engine import BaseEngine
+from pyscrai.engines.base_engine import BaseEngine
+from pyscrai.core.models import Event  # Added for event publishing
 
 # Initialize a logger for this module
 logger = logging.getLogger(__name__)
@@ -105,6 +106,9 @@ class AnalystEngine(BaseEngine):
     async def process(self, event_payload: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
         """
         Processes an event payload and generates analytical insights.
+        This method is now primarily called internally by handle_delivered_event
+        or when a direct analysis request is made. The actual event publishing
+        will happen after the analysis is complete.
 
         Args:
             event_payload (Dict[str, Any]): Data associated with the event.
@@ -113,7 +117,7 @@ class AnalystEngine(BaseEngine):
 
         Returns:
             Dict[str, Any]: A dictionary containing the analysis results ('content')
-                            and any errors ('error').
+                            and any errors ('error'). This will be wrapped in an event.
         """
         if not self.initialized:
             logger.error(f"AnalystEngine '{self.engine_name}' not initialized.")
@@ -124,17 +128,17 @@ class AnalystEngine(BaseEngine):
 
         try:
             # Analyze the event payload
-            analysis_result = self._analyze_event(event_payload)
+            analysis_result_data = self._analyze_event(event_payload)
             
             # Store the analysis result
-            self.state["analysis_results"].append(analysis_result)
+            self.state["analysis_results"].append(analysis_result_data)
             
             # Generate analytical response using LLM
             try:
                 from ..factories.llm_factory import get_llm_instance
                 
                 # Create analysis prompt
-                analysis_prompt = self._create_analysis_prompt(event_payload, analysis_result)
+                analysis_prompt = self._create_analysis_prompt(event_payload, analysis_result_data)
                 
                 llm = get_llm_instance(provider=self.model_provider)
                 ai_response = await llm.agenerate(analysis_prompt)
@@ -150,14 +154,102 @@ class AnalystEngine(BaseEngine):
             except Exception as llm_error:
                 logger.warning(f"LLM call failed for analyst: {llm_error}. Using fallback response.")
                 # Fallback to simple response if LLM fails
-                response_content = self._generate_analysis_response(analysis_result)
+                response_content = self._generate_analysis_response(analysis_result_data)
             
             logger.debug(f"Analysis response: {response_content}")
-            return {"content": response_content, "error": None}
+            
+            # Prepare data for the event
+            event_data = {
+                "engine_id": self.engine_id,
+                "engine_name": self.engine_name,
+                "analysis_focus": self.analysis_focus,
+                "metrics": analysis_result_data.get("metrics", {}),
+                "insights": analysis_result_data.get("insights", []),
+                "full_report": response_content, # The detailed LLM or fallback response
+                "original_event_payload": event_payload # Include original trigger if needed
+            }
+
+            # Publish the event
+            if self.event_bus:
+                await self.event_bus.publish(
+                    self.engine_id, # Source is this engine
+                    Event(
+                        event_type="analysis_checkpoint_generated",
+                        payload=event_data,
+                        source_entity_id=self.engine_id,
+                        target_entity_id=None # Or specific target if applicable
+                    )
+                )
+                logger.info(f"AnalystEngine '{self.engine_name}' published 'analysis_checkpoint_generated' event.")
+            else:
+                logger.warning(f"AnalystEngine '{self.engine_name}' has no event bus to publish 'analysis_checkpoint_generated'.")
+
+            return {"content": response_content, "error": None, "published_event": True}
             
         except Exception as e:
             logger.error(f"Error during {self.engine_name} processing: {e}", exc_info=True)
-            return {"content": None, "error": str(e)}
+            return {"content": None, "error": str(e), "published_event": False}
+
+    async def handle_delivered_event(self, event: Event) -> None:
+        """
+        Handles events delivered to the AnalystEngine.
+        This engine might analyze speech from actors, scene descriptions, or direct requests.
+        """
+        if not self.initialized:
+            logger.error(f"AnalystEngine '{self.engine_name}' cannot handle event, not initialized.")
+            return
+
+        logger.info(f"AnalystEngine '{self.engine_name}' received event: {event.event_type}")
+        logger.debug(f"Event payload: {event.payload}")
+
+        # Determine action based on event type
+        # For GenericConversation, the Analyst might listen to actor speech or scene updates.
+        # It could also respond to a direct 'request_analysis_update' from EngineManager.
+        
+        analysis_trigger_payload = None
+
+        if event.event_type == "actor_speech_generated":
+            # Potentially analyze the speech content
+            # Example: Extract sentiment, topics, etc.
+            analysis_trigger_payload = {
+                "trigger_event_type": event.event_type,
+                "source_actor_id": event.payload.get("engine_id"),
+                "speech_content": event.payload.get("text"),
+                "full_payload": event.payload  # Pass the full payload for richer context
+            }
+            logger.info(f"AnalystEngine to analyze speech from {event.payload.get('engine_id')}")
+
+        elif event.event_type == "scene_description_generated": # Assuming Narrator publishes this
+            # Potentially analyze the scene description
+            analysis_trigger_payload = {
+                "trigger_event_type": event.event_type,
+                "source_narrator_id": event.payload.get("engine_id"),
+                "scene_content": event.payload.get("description"), # Assuming this key from Narrator
+                "full_payload": event.payload
+            }
+            logger.info(f"AnalystEngine to analyze scene description from {event.payload.get('engine_id')}")
+            
+        elif event.event_type == "request_analysis_update": # Direct request from EngineManager
+            # This event might carry specific instructions or data to analyze
+            analysis_trigger_payload = {
+                "trigger_event_type": event.event_type,
+                "request_details": event.payload.get("details", "General analysis requested."),
+                "full_payload": event.payload
+            }
+            logger.info(f"AnalystEngine received direct analysis request.")
+
+        # Add more event types as needed for different scenarios
+
+        if analysis_trigger_payload:
+            # Call the process method to perform analysis and publish the event
+            # Pass the constructed payload that indicates what triggered this analysis
+            process_result = await self.process(analysis_trigger_payload)
+            if process_result.get("error"):
+                logger.error(f"AnalystEngine failed to process triggered analysis for event {event.event_type}: {process_result['error']}")
+            else:
+                logger.info(f"AnalystEngine successfully processed and published analysis for event {event.event_type}.")
+        else:
+            logger.debug(f"AnalystEngine '{self.engine_name}' has no specific handler for event type: {event.event_type}")
 
     def _analyze_event(self, event_payload: Dict[str, Any]) -> Dict[str, Any]:
         """

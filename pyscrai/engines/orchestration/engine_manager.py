@@ -7,10 +7,10 @@ import logging
 from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
 
-from .event_bus import EventBus
-from .execution_pipeline import ExecutionPipeline
-from .state_manager import StateManager
-from ..agent_runtime import AgentRuntime
+from pyscrai.engines.orchestration.event_bus import EventBus
+from pyscrai.engines.orchestration.execution_pipeline import ExecutionPipeline
+from pyscrai.engines.orchestration.state_manager import StateManager
+from pyscrai.engines.agent_runtime import AgentRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,12 @@ class EngineManager:
         # Track engines managed by this instance
         self.engines: Dict[str, Any] = {}
         self.scenario_engines: Dict[str, List[int]] = {}  # scenario_id -> [agent_instance_ids]
+        
+        # Store rich context for each active scenario
+        self.scenario_context_data: Dict[int, Dict[str, Any]] = {}
+        
+        # Subscribe to agent action output events
+        self.event_bus.subscribe("agent.action.output", self._handle_agent_action_output)
         
         logger.info("EngineManager initialized with full orchestration system.")
 
@@ -295,129 +301,274 @@ class EngineManager:
 
     async def register_scenario(self, scenario_run_id: int, agent_instances: List[Any]) -> None:
         """
-        Register a scenario and its agent instances with the engine manager.
+        Register a scenario and its agent instances with the EngineManager.
         
         Args:
             scenario_run_id: ID of the scenario run
-            agent_instances: List of agent instances associated with this scenario
+            agent_instances: List of agent instances for this scenario
         """
         logger.info(f"Registering scenario {scenario_run_id} with {len(agent_instances)} agents")
         
-        # Add to scenario engines tracking
-        self.scenario_engines[str(scenario_run_id)] = [instance.id for instance in agent_instances]
-
-        # Initialize agents with the agent runtimzzzzzze (await async startup)
-        for instance in agent_instances:
-            await self.agent_runtime.start_agent(instance)
-
-        # Initialize scenario state
-        self.state_manager.create_scenario_state(scenario_run_id)
-
-        logger.info(f"Successfully registered scenario {scenario_run_id}")
+        # Track agents for this scenario
+        self.scenario_engines[str(scenario_run_id)] = [
+            instance.id for instance in agent_instances
+        ]
         
-    async def queue_event(
-        self, 
-        scenario_run_id: int, 
-        event_type: str, 
-        event_data: Dict[str, Any],
-        source_agent_id: Optional[int] = None,
-        target_agent_id: Optional[int] = None,
-        priority: int = 5
-    ) -> int:
-        """
-        Queue an event for processing in a scenario.
-        
-        Args:
-            scenario_run_id: ID of the scenario run
-            event_type: Type of event to queue
-            event_data: Event payload/data
-            source_agent_id: Optional ID of the source agent
-            target_agent_id: Optional ID of the target agent
-            priority: Event processing priority (1-10)
-            
-        Returns:
-            ID of the created event instance
-        """
-        # Create event in database
-        from ...databases.models import EventType, EventInstance
-        
-        # Get event type from database
-        event_type_obj = self.db.query(EventType).filter(EventType.name == event_type).first()
-        if not event_type_obj:
-            raise ValueError(f"Event type '{event_type}' not found")
-            
-        # Create event instance
-        event_instance = EventInstance(
-            event_type_id=event_type_obj.id,
-            scenario_run_id=scenario_run_id,
-            agent_instance_id=target_agent_id,
-            source_agent_id=source_agent_id,
-            target_agent_id=target_agent_id,
-            data=event_data,
-            status="pending",
-            priority=priority
-        )
-        
-        self.db.add(event_instance)
-        self.db.commit()
-        self.db.refresh(event_instance)
-        
-        # Publish to event bus
-        await self.event_bus.publish_event(
-            event_type=event_type,
-            event_data={
-                "event_instance_id": event_instance.id,
-                "scenario_run_id": scenario_run_id,
-                "data": event_data,
-                "source_agent_id": source_agent_id,
-                "target_agent_id": target_agent_id
-            }
-        )
-        
-        logger.info(f"Queued event {event_instance.id} of type '{event_type}' for scenario {scenario_run_id}")
-        return event_instance.id
-        
-    async def get_event_queue_stats(self, scenario_run_id: int) -> Dict[str, Any]:
-        """
-        Get statistics about the event queue for a scenario.
-        
-        Args:
-            scenario_run_id: ID of the scenario run
-            
-        Returns:
-            Dictionary with event queue statistics
-        """
-        from ...databases.models import EventInstance
-        
-        # Count events by status
-        pending_count = self.db.query(EventInstance).filter(
-            EventInstance.scenario_run_id == scenario_run_id,
-            EventInstance.status == "pending"
-        ).count()
-        
-        processing_count = self.db.query(EventInstance).filter(
-            EventInstance.scenario_run_id == scenario_run_id,
-            EventInstance.status == "processing"
-        ).count()
-        
-        completed_count = self.db.query(EventInstance).filter(
-            EventInstance.scenario_run_id == scenario_run_id,
-            EventInstance.status == "completed"
-        ).count()
-        
-        failed_count = self.db.query(EventInstance).filter(
-            EventInstance.scenario_run_id == scenario_run_id,
-            EventInstance.status == "failed"
-        ).count()
-        
-        return {
-            "pending": pending_count,
-            "processing": processing_count,
-            "completed": completed_count,
-            "failed": failed_count,
-            "total": pending_count + processing_count + completed_count + failed_count
+        # Create basic scenario context data structure
+        self.scenario_context_data[scenario_run_id] = {
+            "agent_instances": agent_instances,
+            "agent_roles": {},      # Will map agent_instance_id -> role
+            "role_agents": {},      # Will map role -> [agent_instance_ids]
+            "actor_agents": [],     # Will store agent_instance_ids of actors
+            "event_flow": {},       # Will store the scenario's event flow
+            "current_turn": None,   # Current turn holder (for turn-based scenarios)
+            "turn_history": []      # History of turns (agent_instance_ids)
         }
         
+        # Start each agent with its appropriate engine
+        for instance in agent_instances:
+            logger.info(f"Starting agent {instance.id} for scenario {scenario_run_id}")
+            await self.agent_runtime.start_agent(instance.id)
+        
+        logger.info(f"Scenario {scenario_run_id} registered with all agents started")
+    
+    async def setup_scenario_context(self, scenario_run_id: int, scenario_template: Dict[str, Any], agent_instances: List[Any]) -> None:
+        """
+        Setup rich scenario context based on the template and agent instances.
+        
+        Args:
+            scenario_run_id: ID of the scenario run
+            scenario_template: The full scenario template with event_flow
+            agent_instances: List of agent instances for this scenario
+        """
+        if scenario_run_id not in self.scenario_context_data:
+            logger.warning(f"Scenario {scenario_run_id} not found in context data. Creating entry.")
+            self.scenario_context_data[scenario_run_id] = {}
+        
+        context = self.scenario_context_data[scenario_run_id]
+        
+        # Store event flow from template
+        context["event_flow"] = scenario_template.get("event_flow", {})
+        
+        # Map agent instances to their roles based on scenario template agent_roles
+        agent_roles = scenario_template.get("agent_roles", {})
+        role_mapping = {}
+        role_agents = {}
+        actor_agents = []
+        
+        for instance in agent_instances:
+            # Find this agent's role in the template
+            for role, role_config in agent_roles.items():
+                template_name = role_config.get("template_name")
+                if instance.template.name == template_name:
+                    # Map this agent to the role
+                    role_mapping[instance.id] = role
+                    if role not in role_agents:
+                        role_agents[role] = []
+                    role_agents[role].append(instance.id)
+                    
+                    # Track actor agents specifically
+                    if role_config.get("engine_type") == "actor":
+                        actor_agents.append(instance.id)
+                    break
+        
+        context["agent_roles"] = role_mapping
+        context["role_agents"] = role_agents
+        context["actor_agents"] = actor_agents
+        
+        # Initialize turn tracking if this is a turn-based scenario
+        interaction_rules = scenario_template.get("config", {}).get("interaction_rules", {})
+        if interaction_rules.get("turn_based", False):
+            # Set initial turn holder if there are actors
+            if actor_agents:
+                context["current_turn"] = actor_agents[0]  # Start with first actor
+                context["turn_history"] = []
+        
+        logger.info(f"Scenario {scenario_run_id} context setup complete with {len(role_mapping)} mapped agents")
+    
+    async def _handle_agent_action_output(self, topic: str, event_payload: Dict[str, Any]) -> None:
+        """
+        Handle an action output event from an agent and route it to appropriate targets
+        based on the scenario's event flow configuration.
+        
+        Args:
+            topic: Event topic (e.g., "agent.action.output")
+            event_payload: Event data including scenario_run_id, source_agent_id, etc.
+        """
+        scenario_run_id = event_payload.get("scenario_run_id")
+        source_agent_id = event_payload.get("source_agent_id")
+        output_type = event_payload.get("output_type")
+        data = event_payload.get("data", {})
+        
+        logger.info(f"Handling agent action output from agent {source_agent_id} in scenario {scenario_run_id}")
+        
+        # Verify this scenario exists in our context data
+        if scenario_run_id not in self.scenario_context_data:
+            logger.error(f"Scenario {scenario_run_id} not found in context data")
+            return
+        
+        context = self.scenario_context_data[scenario_run_id]
+        
+        # Find source agent's role
+        source_role = context["agent_roles"].get(source_agent_id)
+        if not source_role:
+            logger.error(f"Agent {source_agent_id} has no role in scenario {scenario_run_id}")
+            return
+        
+        # Verify turn-taking rules if applicable
+        if context.get("current_turn") is not None:
+            if context["current_turn"] != source_agent_id:
+                logger.warning(f"Agent {source_agent_id} acted out of turn in scenario {scenario_run_id}")
+                # Optionally: return or take some corrective action
+        
+        # Find the relevant event flow step based on agent role and output type
+        event_flow = context.get("event_flow", {})
+        event_step = None
+        
+        # Map the output_type to a relevant event_flow step
+        for step_name, step_config in event_flow.items():
+            if step_config.get("source") == source_role or step_config.get("source") == "any_actor" and source_role.endswith("_actor"):
+                # Found a matching event step
+                event_step = step_config
+                event_step_name = step_name
+                break
+        
+        if not event_step:
+            logger.warning(f"No matching event flow step for role {source_role} with output {output_type}")
+            return
+        
+        # Determine target agents based on event step configuration
+        target = event_step.get("target", "")
+        target_agent_ids = []
+        
+        if target == "all_agents":
+            # Target all agents in the scenario
+            target_agent_ids = [aid for aid in context["agent_roles"].keys()]
+        elif target == "other_actors":
+            # Target all actors except the source
+            target_agent_ids = [aid for aid in context["actor_agents"] if aid != source_agent_id]
+        elif target == "system":
+            # System events might be logged or processed differently
+            logger.info(f"System event from {source_role}: {output_type}")
+            # No agent targets for system events
+        elif target in context["role_agents"]:
+            # Target a specific role
+            target_agent_ids = context["role_agents"][target]
+        
+        # If this is a turn-based scenario, update the current turn
+        if context.get("current_turn") is not None and target_agent_ids:
+            # Find next actor in the sequence (simple round-robin)
+            actors = context["actor_agents"]
+            current_idx = actors.index(source_agent_id) if source_agent_id in actors else -1
+            next_idx = (current_idx + 1) % len(actors) if actors else 0
+            next_turn = actors[next_idx] if actors else None
+            
+            context["current_turn"] = next_turn
+            context["turn_history"].append(source_agent_id)
+        
+        # Deliver the event to each target agent
+        for target_id in target_agent_ids:
+            logger.info(f"Delivering {output_type} event from {source_agent_id} to {target_id} in scenario {scenario_run_id}")
+            
+            # Prepare the event payload for the target
+            event_data = {
+                "source_agent_id": source_agent_id,
+                "source_role": source_role,
+                "event_type": output_type,
+                "scenario_run_id": scenario_run_id,
+                **data
+            }
+            
+            # Deliver the event to the target agent
+            await self.deliver_event_to_agent(target_id, output_type, event_data)
+    
+    async def deliver_event_to_agent(self, agent_id: int, event_type: str, event_data: Dict[str, Any]) -> bool:
+        """
+        Deliver an event directly to an agent's engine.
+        
+        Args:
+            agent_id: ID of the target agent
+            event_type: Type of event being delivered
+            event_data: Event payload data
+            
+        Returns:
+            True if event was delivered successfully, False otherwise
+        """
+        try:
+            if agent_id not in self.agent_runtime.active_agents:
+                logger.error(f"Agent {agent_id} is not active")
+                return False
+            
+            runtime_info = self.agent_runtime.active_agents[agent_id]
+            engine = runtime_info["engine"]
+            
+            # Call the engine's handle_event method
+            if hasattr(engine, "handle_delivered_event") and callable(engine.handle_delivered_event):
+                await engine.handle_delivered_event(event_type, event_data)
+                return True
+            else:
+                logger.warning(f"Agent {agent_id}'s engine does not have handle_delivered_event method")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to deliver event to agent {agent_id}: {e}", exc_info=True)
+            return False
+    
+    async def trigger_scenario_initialization(self, scenario_run_id: int) -> bool:
+        """
+        Trigger the initial events for a scenario based on its event_flow.
+        
+        Args:
+            scenario_run_id: ID of the scenario to initialize
+            
+        Returns:
+            True if initialization events were triggered successfully
+        """
+        if scenario_run_id not in self.scenario_context_data:
+            logger.error(f"Scenario {scenario_run_id} not found in context data")
+            return False
+        
+        context = self.scenario_context_data[scenario_run_id]
+        event_flow = context.get("event_flow", {})
+        
+        # Look for the scenario_initialization event
+        init_event = None
+        for name, config in event_flow.items():
+            if name == "scenario_initialization" or config.get("conditions", {}).get("trigger") == "scenario_start":
+                init_event = config
+                break
+        
+        if not init_event:
+            logger.warning(f"No initialization event found for scenario {scenario_run_id}")
+            return True  # Not a failure, might be intentional
+        
+        # Prepare the initialization event payload
+        event_data = {
+            "scenario_run_id": scenario_run_id,
+            "source_agent_id": None,  # System-initiated
+            "scenario_context": f"Scenario {scenario_run_id} has started",
+            "initial_setting": {},  # Could be populated from scenario config
+            "participant_roles": context["agent_roles"]
+        }
+        
+        # Determine target agents
+        target = init_event.get("target")
+        target_agent_ids = []
+        
+        if target == "all_agents":
+            target_agent_ids = list(context["agent_roles"].keys())
+        elif target in context["role_agents"]:
+            target_agent_ids = context["role_agents"][target]
+        
+        # Deliver the initialization event to each target
+        success = True
+        for agent_id in target_agent_ids:
+            result = await self.deliver_event_to_agent(agent_id, "scenario_initialization", event_data)
+            if not result:
+                success = False
+        
+        return success
+
     async def cleanup_scenario(self, scenario_run_id: int) -> None:
         """
         Clean up resources associated with a scenario.

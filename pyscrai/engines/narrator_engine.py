@@ -8,8 +8,8 @@ scene-setting capabilities.
 import logging
 from typing import Any, Dict, List, Optional
 
-from .base_engine import BaseEngine
-from ..factories.llm_factory import get_llm_instance
+from pyscrai.engines.base_engine import BaseEngine
+from pyscrai.factories.llm_factory import get_llm_instance
 
 # Initialize a logger for this module
 logger = logging.getLogger(__name__)
@@ -100,16 +100,18 @@ class NarratorEngine(BaseEngine):
 
     async def process(self, event_payload: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
         """
-        Processes an event payload and generates narrative content.
+        Processes an external event (e.g., a system trigger to describe a scene)
+        and generates narrative content. This content is then published as an event.
 
         Args:
             event_payload (Dict[str, Any]): Data associated with the event.
-                                         Expected to contain 'prompt' or 'scene' for narration.
+                                         Expected to contain 'prompt' or 'scene_details' for narration.
             **kwargs: Additional keyword arguments.
 
         Returns:
-            Dict[str, Any]: A dictionary containing the narrative response ('content')
-                            and any errors ('error').
+            Dict[str, Any]: A dictionary containing the direct response content
+                            (if any, for immediate return) and any errors.
+                            The main output for scenario flow is published via event.
         """
         if not self.initialized:
             logger.error(f"NarratorEngine '{self.engine_name}' not initialized.")
@@ -118,46 +120,63 @@ class NarratorEngine(BaseEngine):
         logger.info(f"{self.engine_name} processing narrative event.")
         logger.debug(f"Event payload: {event_payload}")
 
-        prompt = event_payload.get("prompt") or event_payload.get("scene")
-        if not prompt:
-            logger.warning("No 'prompt' or 'scene' found in event_payload for NarratorEngine.")
-            return {"content": None, "error": "No prompt or scene provided in event payload"}
+        # Adapt to various ways a scene might be described in the payload
+        prompt_data = event_payload.get("prompt") or \
+                      event_payload.get("scene_details") or \
+                      event_payload.get("description")
+
+        if not prompt_data:
+            logger.warning("No 'prompt', 'scene_details', or 'description' found in event_payload for NarratorEngine.")
+            return {"content": None, "error": "No narrative prompt provided"}
+        
+        # If prompt_data is a dict, try to extract a meaningful string, otherwise use as is
+        if isinstance(prompt_data, dict):
+            narrative_input = prompt_data.get("summary", str(prompt_data))
+        else:
+            narrative_input = str(prompt_data)
 
         try:
-            # Create narrative-specific prompt
-            narrative_prompt = self._create_narrative_prompt(prompt)
+            narrative_prompt_for_llm = self._create_narrative_prompt(narrative_input)
             
-            # Use LLM factory to get real AI response
             try:
                 llm = get_llm_instance(provider=self.model_provider)
-                ai_response = await llm.agenerate(narrative_prompt)
+                ai_response = await llm.agenerate(narrative_prompt_for_llm)
                 
-                # Extract content from AI response
                 if hasattr(ai_response, 'content'):
-                    response_content = f"[Narrator]: {ai_response.content}"
+                    narrative_text = ai_response.content
                 elif isinstance(ai_response, str):
-                    response_content = f"[Narrator]: {ai_response}"
+                    narrative_text = ai_response
                 else:
-                    response_content = f"[Narrator]: {str(ai_response)}"
+                    narrative_text = str(ai_response)
                     
             except Exception as llm_error:
                 logger.warning(f"LLM call failed for narrator: {llm_error}. Using fallback response.")
-                # Fallback to simple response if LLM fails
-                response_content = self._generate_narrative_response(prompt)
+                narrative_text = self._generate_fallback_narrative(narrative_input) # Renamed for clarity
             
-            logger.debug(f"Narrator response: {response_content}")
-            return {"content": response_content, "error": None}
+            # Publish the narrative content as an event
+            await self.publish_event(
+                event_type="scene_description_generated", # Generic event type from the narrator
+                event_data={
+                    "description": narrative_text,
+                    "style": self.narrative_style,
+                    "perspective": self.perspective
+                }
+            )
+            
+            logger.debug(f"Narrator generated description: {narrative_text}")
+            # Direct return might be a summary or the full text, depending on design
+            return {"content": f"[Narrator]: {narrative_text}", "error": None}
             
         except Exception as e:
             logger.error(f"Error during {self.engine_name} processing: {e}", exc_info=True)
             return {"content": None, "error": str(e)}
 
-    def _create_narrative_prompt(self, prompt: str) -> str:
+    def _create_narrative_prompt(self, scene_input: str) -> str:
         """
         Creates a narrative-specific prompt incorporating style and perspective.
         
         Args:
-            prompt (str): The original prompt or scene description
+            scene_input (str): The original prompt or scene description
             
         Returns:
             str: Enhanced prompt with narrative context
@@ -169,33 +188,75 @@ class NarratorEngine(BaseEngine):
         }.get(self.perspective, "Narrate in third person")
         
         narrative_context = f"As a narrator with a {self.narrative_style} style, {perspective_instruction}. "
-        narrative_context += f"Provide narrative description for: {prompt}"
+        narrative_context += f"Provide narrative description for the following: {scene_input}"
         
         return narrative_context
 
-    def _generate_narrative_response(self, prompt: str) -> str:
+    def _generate_fallback_narrative(self, scene_input: str) -> str: # Renamed from _generate_narrative_response
         """
-        Generates a narrative response based on the prompt.
-        
-        Args:
-            prompt (str): The scene or situation to narrate
-            
-        Returns:
-            str: Narrative description
+        Generates a fallback narrative response if the LLM fails.
         """
-        # Simple narrative generation for now
-        # In Phase 2, this will use LLM providers
-        
         perspective_prefix = {
             "first_person": "I observe",
             "second_person": "You find yourself in",
             "third_person": "The scene unfolds as"
         }.get(self.perspective, "The scene unfolds as")
         
-        narrative_response = f"[Narrator - {self.narrative_style} style]: {perspective_prefix} a situation where {prompt}. "
+        narrative_response = f"{perspective_prefix} a situation where {scene_input}. "
         narrative_response += "The atmosphere is charged with possibility, and every detail seems significant in this moment."
         
         return narrative_response
+
+    async def handle_delivered_event(self, event_type: str, event_data: Dict[str, Any], sender_id: Optional[str] = None) -> None:
+        """
+        Handles events delivered to this narrator engine.
+        Overrides BaseEngine.handle_delivered_event.
+        """
+        await super().handle_delivered_event(event_type, event_data, sender_id) # Call base for logging etc.
+        logger.info(f"NarratorEngine '{self.engine_name}' received event: Type='{event_type}', Sender='{sender_id}'")
+        logger.debug(f"Event data: {event_data}")
+
+        # Example: If the system requests a scene update based on an action
+        if event_type == "request_scene_update": # This type would be set by EngineManager
+            action_description = event_data.get("action_summary", "something happened")
+            context = event_data.get("context", {})
+            
+            logger.info(f"Narrator to describe scene after: '{action_description}'")
+            
+            # Formulate a prompt for the LLM to generate a new scene description
+            try:
+                # Construct a prompt for the LLM
+                # Context might include previous scene, characters present, etc.
+                scene_update_prompt_text = f"Following the action '{action_description}', describe the current scene. Context: {context}"
+                narrative_llm_prompt = self._create_narrative_prompt(scene_update_prompt_text)
+
+                llm = get_llm_instance(provider=self.model_provider)
+                ai_response = await llm.agenerate(narrative_llm_prompt)
+
+                if hasattr(ai_response, 'content'):
+                    narrative_text = ai_response.content
+                elif isinstance(ai_response, str):
+                    narrative_text = ai_response
+                else:
+                    narrative_text = str(ai_response)
+
+                # Publish the new scene description
+                await self.publish_event(
+                    event_type="scene_description_generated",
+                    event_data={
+                        "description": narrative_text,
+                        "style": self.narrative_style,
+                        "perspective": self.perspective,
+                        "triggered_by_action": action_description # Optional context
+                    }
+                )
+                logger.info(f"Narrator describes: '{narrative_text}'")
+
+            except Exception as e:
+                logger.error(f"Error during {self.engine_name} handling delivered event '{event_type}': {e}", exc_info=True)
+        
+        # Add more elif blocks here for other event types this narrator should handle
+        # e.g., direct requests for lore, specific atmospheric changes, etc.
 
     def get_narrative_info(self) -> Dict[str, Any]:
         """
