@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional
 
 from pyscrai.engines.base_engine import BaseEngine
 from pyscrai.factories.llm_factory import get_llm_instance
+from pyscrai.core.models import Event # Added
+from sqlalchemy.orm import Session # Added
 
 # Initialize a logger for this module
 logger = logging.getLogger(__name__)
@@ -154,14 +156,23 @@ class NarratorEngine(BaseEngine):
                 narrative_text = self._generate_fallback_narrative(narrative_input) # Renamed for clarity
             
             # Publish the narrative content as an event
-            await self.publish_event(
-                event_type="scene_description_generated", # Generic event type from the narrator
-                event_data={
-                    "description": narrative_text,
-                    "style": self.narrative_style,
-                    "perspective": self.perspective
-                }
-            )
+            if self.event_publisher:
+                description_event = Event(
+                    event_type="scene_description_generated",
+                    payload={
+                        "description": narrative_text,
+                        "narrative_style": self.narrative_style,
+                        "perspective": self.perspective,
+                        "instance_id": self.agent_config.get("instance_id"),
+                        "scenario_id": kwargs.get("scenario_id") # Ensure scenario_id is passed if available
+                    },
+                    source_agent_id=self.agent_config.get("instance_id"),
+                    source_engine_id=self.engine_id
+                )
+                await self.event_publisher(description_event)
+                logger.info(f"NarratorEngine published scene_description_generated event.")
+            else:
+                logger.warning(f"Event publisher not set for NarratorEngine. Cannot publish description event.")
             
             logger.debug(f"Narrator generated description: {narrative_text}")
             # Direct return might be a summary or the full text, depending on design
@@ -207,56 +218,20 @@ class NarratorEngine(BaseEngine):
         
         return narrative_response
 
-    async def handle_delivered_event(self, event_type: str, event_data: Dict[str, Any], sender_id: Optional[str] = None) -> None:
+    async def handle_delivered_event(self, event: Event, scenario_context: Dict[str, Any], db_session: Session) -> None:
         """
-        Handles events delivered to this narrator engine.
-        Overrides BaseEngine.handle_delivered_event.
+        Handles an event delivered by the EngineManager.
+        For NarratorEngine, this typically means generating a scene description based on the event.
         """
-        await super().handle_delivered_event(event_type, event_data, sender_id) # Call base for logging etc.
-        logger.info(f"NarratorEngine '{self.engine_name}' received event: Type='{event_type}', Sender='{sender_id}'")
-        logger.debug(f"Event data: {event_data}")
-
-        # Example: If the system requests a scene update based on an action
-        if event_type == "request_scene_update": # This type would be set by EngineManager
-            action_description = event_data.get("action_summary", "something happened")
-            context = event_data.get("context", {})
-            
-            logger.info(f"Narrator to describe scene after: '{action_description}'")
-            
-            # Formulate a prompt for the LLM to generate a new scene description
-            try:
-                # Construct a prompt for the LLM
-                # Context might include previous scene, characters present, etc.
-                scene_update_prompt_text = f"Following the action '{action_description}', describe the current scene. Context: {context}"
-                narrative_llm_prompt = self._create_narrative_prompt(scene_update_prompt_text)
-
-                llm = get_llm_instance(provider=self.model_provider)
-                ai_response = await llm.agenerate(narrative_llm_prompt)
-
-                if hasattr(ai_response, 'content'):
-                    narrative_text = ai_response.content
-                elif isinstance(ai_response, str):
-                    narrative_text = ai_response
-                else:
-                    narrative_text = str(ai_response)
-
-                # Publish the new scene description
-                await self.publish_event(
-                    event_type="scene_description_generated",
-                    event_data={
-                        "description": narrative_text,
-                        "style": self.narrative_style,
-                        "perspective": self.perspective,
-                        "triggered_by_action": action_description # Optional context
-                    }
-                )
-                logger.info(f"Narrator describes: '{narrative_text}'")
-
-            except Exception as e:
-                logger.error(f"Error during {self.engine_name} handling delivered event '{event_type}': {e}", exc_info=True)
+        logger.info(f"{self.engine_name} received event {event.event_type} with payload: {event.payload}")
         
-        # Add more elif blocks here for other event types this narrator should handle
-        # e.g., direct requests for lore, specific atmospheric changes, etc.
+        scenario_id = scenario_context.get("scenario_run_id")
+
+        if event.payload:
+            # Call the existing process method to generate narrative and publish an event
+            await self.process(event.payload, scenario_id=scenario_id)
+        else:
+            logger.warning(f"No payload in event {event.event_type} for {self.engine_name}")
 
     def get_narrative_info(self) -> Dict[str, Any]:
         """

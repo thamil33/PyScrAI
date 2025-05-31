@@ -13,7 +13,7 @@ This guide provides a concise overview for interacting with the PyScrAI API duri
 ---
 3. **Start the API server:**
 
-  uvicorn pyscrai.databases.api.main:app --reload
+  uvicorn pyscrai.databases.api.main: --reload
  
 ---
 ## 2. API Documentation
@@ -26,7 +26,7 @@ pdoc --html ./pyscrai -o ./pyscrai_docs
   - `/api/v1/engines` (engine management, event queue)
   - `/api/v1/scenarios` (scenario runs, events)
   - `/api/v1/templates` (agent/scenario templates)
-
+app
 ---
 
 ## 3. Example API Interactions

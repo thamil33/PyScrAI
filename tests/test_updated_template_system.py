@@ -89,7 +89,7 @@ class TestUniversalTemplateValidation:
         """Test validation of generic conversation scenario"""
         validated = ScenarioTemplateValidator(**generic_conversation_scenario)
         
-        assert validated.name == "Generic Conversation"
+        assert validated.name == "GenericConversation"
         assert len(validated.agent_roles) == 4
         assert len(validated.event_flow) == 5
         assert validated.runtime_customization is not None

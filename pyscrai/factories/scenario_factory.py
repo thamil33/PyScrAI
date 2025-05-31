@@ -5,7 +5,7 @@ Scenario factory for creating scenario runs from templates
 from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
 from datetime import datetime
-from pyscrai.databases.models import ScenarioTemplate, ScenarioRun, AgentInstance
+from pyscrai.databases.models import ScenarioTemplate, ScenarioRun, AgentInstance, AgentTemplate # Moved AgentTemplate here
 from pyscrai.factories.agent_factory import AgentFactory
 from pyscrai.factories.template_manager import TemplateManager
 
@@ -70,9 +70,8 @@ class ScenarioFactory:
                 continue
             
             # Find the agent template by name
-            from ..databases.models import AgentTemplate
-            agent_template = self.db.query(AgentTemplate).filter(AgentTemplate.name == template_name).first()
-            if not agent_template:
+            agent_template_obj = self.db.query(AgentTemplate).filter(AgentTemplate.name == template_name).first() # Renamed to avoid conflict
+            if not agent_template_obj:
                 raise ValueError(f"Agent template '{template_name}' not found for role '{role_name}'")
             
             # Get any overrides for this role
@@ -83,10 +82,11 @@ class ScenarioFactory:
             
             # Create the agent instance
             instance = self.agent_factory.create_agent_instance(
-                template_id=agent_template.id,
+                template_id=agent_template_obj.id, # Use renamed variable
                 scenario_run_id=scenario_run_id,
                 instance_name=instance_name,
-                runtime_config=role_overrides
+                runtime_config=role_overrides,
+                role_in_scenario=role_name
             )
             
             created_instances.append(instance)
@@ -180,22 +180,23 @@ class ScenarioFactory:
             template_name = config.get("template_name")
             instance_name = config.get("instance_name")
             runtime_config = config.get("runtime_config", {})
-            
+            role_in_scenario = config.get("role_in_scenario") # Get role_in_scenario
+
             if not template_name or not instance_name:
                 raise ValueError("Each agent config must have 'template_name' and 'instance_name'")
             
             # Find the agent template by name
-            from ..databases.models import AgentTemplate
-            agent_template = self.db.query(AgentTemplate).filter(AgentTemplate.name == template_name).first()
-            if not agent_template:
+            agent_template_obj = self.db.query(AgentTemplate).filter(AgentTemplate.name == template_name).first() # Renamed to avoid conflict
+            if not agent_template_obj:
                 raise ValueError(f"Agent template '{template_name}' not found")
             
             # Create the agent instance
             instance = self.agent_factory.create_agent_instance(
-                template_id=agent_template.id,
+                template_id=agent_template_obj.id, # Use renamed variable
                 scenario_run_id=scenario_run_id,
                 instance_name=instance_name,
-                runtime_config=runtime_config
+                runtime_config=runtime_config,
+                role_in_scenario=role_in_scenario # Pass role_in_scenario
             )
             
             created_instances.append(instance)

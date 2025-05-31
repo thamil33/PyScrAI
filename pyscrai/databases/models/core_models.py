@@ -16,7 +16,10 @@ class AgentTemplate(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False, unique=True)
     description = Column(Text)
+    version = Column(String(20)) # Added version field
     engine_type = Column(String(50), nullable=False)
+    config_schema = Column(JSON)  # Added config_schema field
+    default_config = Column(JSON) # Added default_config field
     personality_config = Column(JSON)
     llm_config = Column(JSON)
     tools_config = Column(JSON)
@@ -34,6 +37,7 @@ class ScenarioTemplate(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False, unique=True)
     description = Column(Text)
+    version = Column(String(20)) # Added version field
     config = Column(JSON)
     agent_roles = Column(JSON)
     event_flow = Column(JSON)
@@ -52,6 +56,7 @@ class AgentInstance(Base):
     template_id = Column(Integer, ForeignKey("agent_templates.id")) # Use fully qualified FK
     scenario_run_id = Column(Integer, ForeignKey("scenario_runs.id")) # Use fully qualified FK
     instance_name = Column(String(100))
+    role_in_scenario = Column(String(100))  # Added role_in_scenario field
     runtime_config = Column(JSON)
     state = Column(JSON)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)

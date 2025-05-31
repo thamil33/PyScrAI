@@ -11,6 +11,7 @@ from pyscrai.engines.orchestration.event_bus import EventBus
 from pyscrai.engines.orchestration.execution_pipeline import ExecutionPipeline
 from pyscrai.engines.orchestration.state_manager import StateManager
 from pyscrai.engines.agent_runtime import AgentRuntime
+from pyscrai.core.models import Event
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +47,28 @@ class EngineManager:
         
         # Store rich context for each active scenario
         self.scenario_context_data: Dict[int, Dict[str, Any]] = {}
-        
-        # Subscribe to agent action output events
+          # Subscribe to agent action output events
         self.event_bus.subscribe("agent.action.output", self._handle_agent_action_output)
         
+        # Subscribe to generic agent output events for inter-agent communication
+        self.event_bus.subscribe("actor_speech_generated", self._handle_agent_generated_event)
+        self.event_bus.subscribe("scene_description_generated", self._handle_agent_generated_event)
+        self.event_bus.subscribe("analysis_checkpoint_generated", self._handle_agent_generated_event)
+        
         logger.info("EngineManager initialized with full orchestration system.")
+
+    @property
+    def agent_engines(self) -> Dict[int, Any]:
+        """
+        Property to access agent engines by their instance IDs through AgentRuntime.
+        
+        Returns:
+            Dict mapping agent instance IDs to their engine instances
+        """
+        engines = {}
+        for agent_id, agent_data in self.agent_runtime.active_agents.items():
+            engines[agent_id] = agent_data["engine"]
+        return engines
 
     def register_engine(self, engine_name: str, engine_instance):
         """
@@ -138,27 +156,64 @@ class EngineManager:
         # TODO: Implement logic to dynamically load/configure engines based on scenario_config
         pass
 
-    async def start_scenario_execution(self, scenario_run_id: int, scenario_config: Dict[str, Any]) -> Dict[int, bool]:
+    async def start_scenario_execution(
+        self, 
+        scenario_run: Any,  # ScenarioRun object 
+        agent_instances: List[Any],  # List[AgentInstance] objects
+        scenario_template: Dict[str, Any],  # ScenarioTemplate data with event_flow
+        event_bus: EventBus  # EventBus instance for engines
+    ) -> Dict[int, bool]:
         """
-        Starts the execution of a full scenario using AgentRuntime.
+        Starts the execution of a full scenario with inter-agent communication support.
         
         Args:
-            scenario_run_id (int): The ID of the scenario run
-            scenario_config (Dict[str, Any]): The full configuration of the scenario
+            scenario_run: The ScenarioRun database object
+            agent_instances: List of AgentInstance objects for this scenario
+            scenario_template: The full scenario template configuration including event_flow
+            event_bus: EventBus instance to be used by engines for inter-agent communication
             
         Returns:
             Dict[int, bool]: Results of starting each agent (agent_instance_id -> success)
         """
+        scenario_run_id = scenario_run.id
         logger.info(f"EngineManager: Starting execution for scenario run {scenario_run_id}")
+        
+        # Store the event_bus for engines to use
+        self.event_bus = event_bus
         
         # Initialize scenario state
         self.state_manager.initialize_scenario_state(
             str(scenario_run_id), 
-            scenario_config
+            scenario_template
         )
         
+        # Register the scenario and its agents
+        await self.register_scenario(scenario_run_id, agent_instances)
+        
+        # Setup rich scenario context with event_flow and role mappings
+        await self.setup_scenario_context(scenario_run_id, scenario_template, agent_instances)
+        
+        # Ensure all engines have access to the event_bus for inter-agent communication
+        for instance in agent_instances:
+            if hasattr(instance, 'id') and instance.id in self.agent_runtime.active_agents:
+                engine = self.agent_runtime.active_agents[instance.id]["engine"]
+                if hasattr(engine, 'event_bus'):
+                    engine.event_bus = event_bus
+                    logger.debug(f"Set event_bus for agent {instance.id}'s engine")
+        
         # Start all agents for this scenario using AgentRuntime
-        results = await self.agent_runtime.start_scenario_agents(scenario_run_id)
+        results = {}
+        for instance in agent_instances:
+            try:
+                success = await self.agent_runtime.start_agent(instance.id)
+                results[instance.id] = success
+                if success:
+                    logger.info(f"Successfully started agent {instance.id}")
+                else:
+                    logger.error(f"Failed to start agent {instance.id}")
+            except Exception as e:
+                logger.error(f"Exception starting agent {instance.id}: {e}")
+                results[instance.id] = False
         
         # Track which agents are part of this scenario
         successful_agents = [agent_id for agent_id, success in results.items() if success]
@@ -168,8 +223,12 @@ class EngineManager:
         self.event_bus.publish("scenario.started", {
             "scenario_run_id": scenario_run_id,
             "agent_results": results,
-            "successful_agents": successful_agents
+            "successful_agents": successful_agents,
+            "scenario_template": scenario_template
         })
+        
+        # Trigger scenario initialization events if defined in event_flow
+        await self.trigger_scenario_initialization(scenario_run_id)
         
         logger.info(f"Scenario {scenario_run_id} started with {len(successful_agents)} active agents")
         return results
@@ -349,28 +408,24 @@ class EngineManager:
         
         # Store event flow from template
         context["event_flow"] = scenario_template.get("event_flow", {})
-        
-        # Map agent instances to their roles based on scenario template agent_roles
+          # Map agent instances to their roles using the role_in_scenario field
         agent_roles = scenario_template.get("agent_roles", {})
         role_mapping = {}
         role_agents = {}
         actor_agents = []
         
         for instance in agent_instances:
-            # Find this agent's role in the template
-            for role, role_config in agent_roles.items():
-                template_name = role_config.get("template_name")
-                if instance.template.name == template_name:
-                    # Map this agent to the role
-                    role_mapping[instance.id] = role
-                    if role not in role_agents:
-                        role_agents[role] = []
-                    role_agents[role].append(instance.id)
-                    
-                    # Track actor agents specifically
-                    if role_config.get("engine_type") == "actor":
-                        actor_agents.append(instance.id)
-                    break
+            # Use the role_in_scenario field directly from the agent instance
+            role = instance.role_in_scenario
+            if role:
+                # Map this agent to the role
+                role_mapping[instance.id] = role
+                role_agents[role] = instance.id  # Single agent per role
+                
+                # Track actor agents specifically by checking the role config
+                role_config = agent_roles.get(role, {})
+                if role_config.get("engine_type") == "actor":
+                    actor_agents.append(instance.id)
         
         context["agent_roles"] = role_mapping
         context["role_agents"] = role_agents
@@ -501,10 +556,21 @@ class EngineManager:
             
             runtime_info = self.agent_runtime.active_agents[agent_id]
             engine = runtime_info["engine"]
-            
-            # Call the engine's handle_event method
+              # Call the engine's handle_event method
             if hasattr(engine, "handle_delivered_event") and callable(engine.handle_delivered_event):
-                await engine.handle_delivered_event(event_type, event_data)
+                # Create an Event object and get scenario context
+                event = Event(
+                    event_type=event_type,
+                    payload=event_data,
+                    source_entity_id=None,  # System-initiated
+                    target_entity_id=agent_id
+                )
+                
+                # Get scenario context 
+                scenario_run_id = event_data.get("scenario_run_id")
+                scenario_context = self.state_manager.get_full_scenario_state(str(scenario_run_id)) if scenario_run_id else {}
+                
+                await engine.handle_delivered_event(event, scenario_context, self.db)
                 return True
             else:
                 logger.warning(f"Agent {agent_id}'s engine does not have handle_delivered_event method")
@@ -550,20 +616,24 @@ class EngineManager:
             "initial_setting": {},  # Could be populated from scenario config
             "participant_roles": context["agent_roles"]
         }
-        
-        # Determine target agents
+          # Determine target agents
         target = init_event.get("target")
         target_agent_ids = []
         
         if target == "all_agents":
             target_agent_ids = list(context["agent_roles"].keys())
         elif target in context["role_agents"]:
-            target_agent_ids = context["role_agents"][target]
-        
-        # Deliver the initialization event to each target
+            # role_agents now maps role -> single agent_id, not a list
+            target_agent_id = context["role_agents"][target]
+            target_agent_ids = [target_agent_id]
+          # Deliver the initialization event to each target
         success = True
+        
+        # Use the event_type specified in the event flow config, not the flow step name
+        event_type = init_event.get("event_type", "scenario_initialization")
+        
         for agent_id in target_agent_ids:
-            result = await self.deliver_event_to_agent(agent_id, "scenario_initialization", event_data)
+            result = await self.deliver_event_to_agent(agent_id, event_type, event_data)
             if not result:
                 success = False
         
@@ -595,6 +665,164 @@ class EngineManager:
             logger.info(f"Cleaned up resources for scenario {scenario_run_id}")
         else:
             logger.warning(f"Scenario {scenario_run_id} not found in engine manager")
+
+    async def _handle_agent_generated_event(self, event: Event) -> None:
+        """
+        Handle generic agent output events (actor_speech_generated, scene_description_generated, 
+        analysis_checkpoint_generated) and route them to appropriate target agents based on 
+        the scenario's event_flow configuration.
+        
+        Args:
+            event: The Event object containing the agent's output
+        """
+        source_engine_id = event.source_entity_id
+        event_type = event.event_type
+        payload = event.payload
+        
+        logger.info(f"Handling agent generated event: {event_type} from {source_engine_id}")
+        
+        # Find which scenario this agent belongs to
+        scenario_run_id = None
+        source_agent_instance_id = None
+        
+        # Search through scenario context to find the source agent
+        for scenario_id, context in self.scenario_context_data.items():
+            for agent_id, role in context["agent_roles"].items():
+                # Check if this agent's engine_id matches the source
+                if hasattr(self.agent_runtime.active_agents.get(agent_id, {}).get("engine"), "engine_id"):
+                    engine = self.agent_runtime.active_agents[agent_id]["engine"]
+                    if engine.engine_id == source_engine_id:
+                        scenario_run_id = scenario_id
+                        source_agent_instance_id = agent_id
+                        break
+            if scenario_run_id:
+                break
+        
+        if not scenario_run_id or source_agent_instance_id is None:
+            logger.warning(f"Could not find scenario for agent event from {source_engine_id}")
+            return
+        
+        context = self.scenario_context_data[scenario_run_id]
+        source_role = context["agent_roles"].get(source_agent_instance_id)
+        
+        if not source_role:
+            logger.error(f"Agent {source_agent_instance_id} has no role in scenario {scenario_run_id}")
+            return
+        
+        logger.info(f"Event from {source_role} in scenario {scenario_run_id}")
+        
+        # Consult the event_flow to determine routing
+        event_flow = context.get("event_flow", {})
+        target_agents = []
+        
+        # Find matching event flow rules
+        for flow_name, flow_config in event_flow.items():
+            # Check if this flow applies to the current event
+            flow_source = flow_config.get("source")
+            flow_event_type = flow_config.get("event_type")
+            
+            # Match by source role and event type
+            source_matches = (
+                flow_source == source_role or 
+                (flow_source == "any_actor" and "actor" in source_role) or
+                flow_source == "any"
+            )
+            
+            event_type_matches = (
+                flow_event_type == event_type or
+                flow_event_type == "any" or
+                not flow_event_type  # No specific event type restriction
+            )
+            
+            if source_matches and event_type_matches:
+                # This flow rule applies
+                target = flow_config.get("target")
+                
+                if target == "all_agents":
+                    target_agents.extend(context["agent_roles"].keys())
+                elif target == "other_actors":
+                    # Target all actors except the source
+                    for agent_id, role in context["agent_roles"].items():
+                        if "actor" in role and agent_id != source_agent_instance_id:
+                            target_agents.append(agent_id)
+                elif target == "all_actors":
+                    # Target all actors including source
+                    for agent_id, role in context["agent_roles"].items():
+                        if "actor" in role:
+                            target_agents.append(agent_id)
+                elif target in context["role_agents"]:
+                    # Target specific role
+                    target_agents.extend(context["role_agents"][target])
+                
+                # Optional: Transform the event type based on flow configuration
+                target_event_type = flow_config.get("transform_to", event_type)
+                
+                # Deliver to target agents
+                for target_agent_id in target_agents:
+                    if target_agent_id != source_agent_instance_id:  # Don't send back to source
+                        await self._deliver_transformed_event(
+                            target_agent_id, 
+                            target_event_type, 
+                            event, 
+                            scenario_run_id,
+                            source_role
+                        )
+                
+                logger.info(f"Delivered {event_type} from {source_role} to {len(set(target_agents))} agents")
+                break  # Only apply the first matching flow rule
+        
+        if not target_agents:
+            logger.info(f"No routing rules found for {event_type} from {source_role}")
+
+    async def _deliver_transformed_event(
+        self, 
+        target_agent_id: int, 
+        event_type: str, 
+        original_event: Event,
+        scenario_run_id: int,
+        source_role: str
+    ) -> None:
+        """
+        Deliver a transformed event to a target agent.
+        
+        Args:
+            target_agent_id: ID of the target agent
+            event_type: The (possibly transformed) event type to deliver
+            original_event: The original event from the source agent
+            scenario_run_id: ID of the current scenario
+            source_role: Role of the source agent
+        """
+        try:
+            if target_agent_id not in self.agent_runtime.active_agents:
+                logger.error(f"Target agent {target_agent_id} is not active")
+                return
+            
+            runtime_info = self.agent_runtime.active_agents[target_agent_id]
+            engine = runtime_info["engine"]
+            
+            # Create a new event for the target with potentially transformed type
+            target_event = Event(
+                event_type=event_type,
+                payload={
+                    **original_event.payload,  # Include original payload
+                    "scenario_run_id": scenario_run_id,
+                    "source_role": source_role,
+                    "original_event_type": original_event.event_type
+                },
+                source_entity_id=original_event.source_entity_id,
+                target_entity_id=target_agent_id
+            )
+              # Deliver the event to the target engine
+            if hasattr(engine, "handle_delivered_event") and callable(engine.handle_delivered_event):
+                # Get scenario context and db session for the event delivery
+                scenario_context = self.state_manager.get_full_scenario_state(str(scenario_run_id))
+                await engine.handle_delivered_event(target_event, scenario_context, self.db)
+                logger.debug(f"Delivered {event_type} event to agent {target_agent_id}")
+            else:
+                logger.warning(f"Target agent {target_agent_id}'s engine does not support handle_delivered_event")
+                
+        except Exception as e:
+            logger.error(f"Failed to deliver transformed event to agent {target_agent_id}: {e}", exc_info=True)
 
 if __name__ == '__main__':
     # This section is for basic testing and demonstration.

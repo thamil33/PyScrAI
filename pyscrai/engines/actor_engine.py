@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional
 
 from pyscrai.engines.base_engine import BaseEngine
 from pyscrai.factories.llm_factory import get_llm_instance
+from pyscrai.core.models import Event # Added
+from sqlalchemy.orm import Session # Added
 
 # Initialize a logger for this module
 logger = logging.getLogger(__name__)
@@ -148,11 +150,49 @@ class ActorEngine(BaseEngine):
                 response_content = f"[{self.character_name}]: I understand the situation: '{prompt}'. As a character with traits '{self.personality_traits}', I would respond appropriately to this scenario."
             
             logger.debug(f"{self.character_name} response: {response_content}")
+            
+            # Publish the actor's speech as an event
+            if self.event_publisher:
+                speech_event = Event(
+                    event_type="actor_speech_generated",
+                    payload={
+                        "actor_name": self.character_name,
+                        "speech": response_content,
+                        "original_prompt": prompt,
+                        "instance_id": self.agent_config.get("instance_id"),
+                        "scenario_id": kwargs.get("scenario_id") # Ensure scenario_id is passed if available
+                    },
+                    source_agent_id=self.agent_config.get("instance_id"),
+                    source_engine_id=self.engine_id
+                )
+                await self.event_publisher(speech_event)
+                logger.info(f"Actor {self.character_name} published actor_speech_generated event.")
+            else:
+                logger.warning(f"Event publisher not set for ActorEngine {self.character_name}. Cannot publish speech event.")
+            
             return {"content": response_content, "error": None}
             
         except Exception as e:
             logger.error(f"Error during {self.engine_name} ({self.character_name}) processing: {e}", exc_info=True)
             return {"content": None, "error": str(e)}
+
+    async def handle_delivered_event(self, event: Event, scenario_context: Dict[str, Any], db_session: Session) -> None:
+        """
+        Handles an event delivered by the EngineManager.
+        For ActorEngine, this typically means processing a prompt or instruction.
+        """
+        logger.info(f"{self.engine_name} ({self.character_name}) received event {event.event_type} with payload: {event.payload}")
+        
+        # Extract relevant information for the process method
+        # The process method expects a dict, event.payload should be it.
+        # We might need to pass scenario_id if process() uses it from kwargs
+        scenario_id = scenario_context.get("scenario_run_id")
+
+        if event.payload:
+            # Call the existing process method to generate a response and publish an event
+            await self.process(event.payload, scenario_id=scenario_id)
+        else:
+            logger.warning(f"No payload in event {event.event_type} for {self.engine_name} ({self.character_name})")
 
     def _create_character_prompt(self, prompt: str) -> str:
         """

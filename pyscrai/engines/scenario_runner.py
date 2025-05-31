@@ -81,58 +81,92 @@ class ScenarioRunner:
             
             # Update the scenario status to 'initializing'
             scenario_run.status = "initializing"
-            self.db.commit()
+            self.db.commit() # Commit early to get scenario_run.id
             
             # Create agent instances based on the template's agent roles
             agent_instances = []
-            for role, agent_config in template.agent_roles.items():
+            # Ensure template.agent_roles is a dictionary
+            template_agent_roles = template.agent_roles or {}
+            for role, agent_role_config in template_agent_roles.items():
                 # Get the specified agent template
-                agent_template_name = agent_config.get("template_name")
+                agent_template_name = agent_role_config.get("template_name")
                 if not agent_template_name:
-                    raise ValueError(f"Agent role '{role}' missing template_name")
+                    raise ValueError(f"Agent role '{role}' missing template_name in scenario template '{template_name}'")
                 
-                agent_template = self.db.query(AgentTemplate).filter(
+                agent_template_model = self.db.query(AgentTemplate).filter(
                     AgentTemplate.name == agent_template_name
                 ).first()
                 
-                if not agent_template:
-                    raise ValueError(f"Agent template '{agent_template_name}' not found")
+                if not agent_template_model:
+                    raise ValueError(f"Agent template '{agent_template_name}' not found for role '{role}'")
                 
                 # Apply any runtime overrides from agent_configs
-                runtime_config = agent_config.get("config", {})
-                if agent_configs and role in agent_configs:
-                    runtime_config.update(agent_configs[role])
+                # agent_configs is expected to be a list of dicts, but matching by role is more robust.
+                # Let's assume agent_configs is a Dict[str, Dict] mapping role to config for simplicity here.
+                # If it's a list, it would need a more complex lookup.
+                # For now, let's adjust to expect agent_configs as Dict[str, Dict[str, Any]]
                 
-                # Create the agent instance
+                current_agent_config = agent_role_config.get("config", {})
+                if agent_configs and isinstance(agent_configs, dict) and role in agent_configs:
+                    current_agent_config.update(agent_configs[role])
+                elif agent_configs and isinstance(agent_configs, list):
+                    # Fallback for list-based agent_configs if needed, though dict is preferred.
+                    for ac in agent_configs:
+                        if ac.get("role") == role: # Assuming agent_configs list items have a "role" key
+                            current_agent_config.update(ac.get("config", {}))
+                            break
                 instance = self.scenario_factory.agent_factory.create_agent_instance(
-                    template_id=agent_template.id,
+                    template_id=agent_template_model.id,
                     scenario_run_id=scenario_run.id,
-                    instance_name=f"{role}_{agent_template.name}",
-                    runtime_config=runtime_config
+                    instance_name=f"{role}_{agent_template_model.name}", # Ensure unique enough name
+                    role_in_scenario=role,
+                    runtime_config=current_agent_config
                 )
-                
                 agent_instances.append(instance)
-                logger.info(f"Created agent instance {instance.id} for role '{role}'")
+                logger.info(f"Created agent instance {instance.id} ({instance.instance_name}) for role '{role}' in scenario {scenario_run.id}")
             
-            # Track as active scenario BEFORE initializing execution
+            self.db.commit() # Commit agent instances
+
+            # Track as active scenario
             self.active_scenarios[scenario_run.id] = {
                 "scenario_run": scenario_run,
-                "agent_instances": agent_instances
+                "agent_instances": agent_instances,
+                "status": "initializing", # Local status tracking
+                "started_at": asyncio.get_event_loop().time() # Approximate start time
             }
 
-            # Register this scenario with the engine manager for orchestration (await async)
-            await self.engine_manager.register_scenario(scenario_run.id, agent_instances)
+            # Prepare scenario_template dictionary for EngineManager
+            scenario_template_dict = {
+                "name": template.name,
+                "description": template.description,
+                "version": template.version,
+                "config": template.config or {},
+                "agent_roles": template.agent_roles or {},
+                "event_flow": template.event_flow or {}
+            }
 
-            # Start the scenario execution
-            await self._initialize_scenario_execution(scenario_run.id)
+            # Call EngineManager to start the scenario execution, including agent startup and context setup
+            await self.engine_manager.start_scenario_execution(
+                scenario_run=scenario_run,
+                agent_instances=agent_instances,
+                scenario_template=scenario_template_dict,
+                event_bus=self.engine_manager.event_bus # Pass the existing event bus from EngineManager
+            )
             
             # Update scenario status to 'running'
-            import datetime
+            import datetime # Ensure datetime is imported if not already at module level
             scenario_run.status = "running"
-            scenario_run.started_at = datetime.datetime.now()
+            # scenario_run.started_at was a float, ensure it's a datetime object if DB expects it
+            # If started_at is for DB, it should be set here properly.
+            # The EngineManager might also set a more precise start time.
+            # For now, let's assume ScenarioRun.started_at is a DateTime field.
+            scenario_run.started_at = datetime.datetime.utcnow() 
             self.db.commit()
             
-            logger.info(f"Scenario run {scenario_run.id} started successfully")
+            self.active_scenarios[scenario_run.id]["status"] = "running"
+            self.active_scenarios[scenario_run.id]["started_at"] = scenario_run.started_at.timestamp() # Store as timestamp for consistency if needed elsewhere
+
+            logger.info(f"Scenario run {scenario_run.id} ({run_name}) started successfully and is now running.")
             return scenario_run.id
             
         except Exception as e:

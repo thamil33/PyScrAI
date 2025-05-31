@@ -8,7 +8,8 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from pyscrai.engines.base_engine import BaseEngine
-from pyscrai.core.models import Event  # Added for event publishing
+from pyscrai.core.models import Event
+from sqlalchemy.orm import Session # Added
 
 # Initialize a logger for this module
 logger = logging.getLogger(__name__)
@@ -190,68 +191,38 @@ class AnalystEngine(BaseEngine):
             logger.error(f"Error during {self.engine_name} processing: {e}", exc_info=True)
             return {"content": None, "error": str(e), "published_event": False}
 
-    async def handle_delivered_event(self, event: Event) -> None:
+    async def handle_delivered_event(self, event: Event, scenario_context: Dict[str, Any], db_session: Session) -> None: # Updated db_session type
         """
-        Handles events delivered to the AnalystEngine.
-        This engine might analyze speech from actors, scene descriptions, or direct requests.
+        Handles events delivered by the EngineManager.
+        The AnalystEngine listens for specific events (e.g., actor speech, scene descriptions)
+        and triggers its analysis process.
         """
-        if not self.initialized:
-            logger.error(f"AnalystEngine '{self.engine_name}' cannot handle event, not initialized.")
-            return
-
-        logger.info(f"AnalystEngine '{self.engine_name}' received event: {event.event_type}")
+        logger.info(f"{self.engine_name} received event {event.event_type} for scenario {scenario_context.get('scenario_run_id')}")
         logger.debug(f"Event payload: {event.payload}")
 
-        # Determine action based on event type
-        # For GenericConversation, the Analyst might listen to actor speech or scene updates.
-        # It could also respond to a direct 'request_analysis_update' from EngineManager.
+        # Determine if this event should trigger analysis based on its type
+        # This logic can be expanded based on specific analysis needs.
+        # For now, let's assume it processes events that have a payload.
+        # The actual decision to process might be more nuanced in a full implementation.
         
-        analysis_trigger_payload = None
+        trigger_events = [
+            "actor_speech_generated", 
+            "scene_description_generated",
+            "request_analysis_update" # Explicit request for analysis
+        ]
 
-        if event.event_type == "actor_speech_generated":
-            # Potentially analyze the speech content
-            # Example: Extract sentiment, topics, etc.
-            analysis_trigger_payload = {
-                "trigger_event_type": event.event_type,
-                "source_actor_id": event.payload.get("engine_id"),
-                "speech_content": event.payload.get("text"),
-                "full_payload": event.payload  # Pass the full payload for richer context
-            }
-            logger.info(f"AnalystEngine to analyze speech from {event.payload.get('engine_id')}")
-
-        elif event.event_type == "scene_description_generated": # Assuming Narrator publishes this
-            # Potentially analyze the scene description
-            analysis_trigger_payload = {
-                "trigger_event_type": event.event_type,
-                "source_narrator_id": event.payload.get("engine_id"),
-                "scene_content": event.payload.get("description"), # Assuming this key from Narrator
-                "full_payload": event.payload
-            }
-            logger.info(f"AnalystEngine to analyze scene description from {event.payload.get('engine_id')}")
-            
-        elif event.event_type == "request_analysis_update": # Direct request from EngineManager
-            # This event might carry specific instructions or data to analyze
-            analysis_trigger_payload = {
-                "trigger_event_type": event.event_type,
-                "request_details": event.payload.get("details", "General analysis requested."),
-                "full_payload": event.payload
-            }
-            logger.info(f"AnalystEngine received direct analysis request.")
-
-        # Add more event types as needed for different scenarios
-
-        if analysis_trigger_payload:
-            # Call the process method to perform analysis and publish the event
-            # Pass the constructed payload that indicates what triggered this analysis
-            process_result = await self.process(analysis_trigger_payload)
-            if process_result.get("error"):
-                logger.error(f"AnalystEngine failed to process triggered analysis for event {event.event_type}: {process_result['error']}")
-            else:
-                logger.info(f"AnalystEngine successfully processed and published analysis for event {event.event_type}.")
+        if event.event_type in trigger_events and event.payload:
+            logger.info(f"AnalystEngine processing event {event.event_type} due to matching type and payload presence.")
+            # Call the existing process method to perform analysis and publish an event
+            # Pass scenario_id if process() uses it from kwargs
+            scenario_id = scenario_context.get("scenario_run_id")
+            await self.process(event.payload, scenario_id=scenario_id)
+        elif not event.payload:
+            logger.warning(f"No payload in event {event.event_type} for {self.engine_name}. Skipping analysis for this event.")
         else:
-            logger.debug(f"AnalystEngine '{self.engine_name}' has no specific handler for event type: {event.event_type}")
-
-    def _analyze_event(self, event_payload: Dict[str, Any]) -> Dict[str, Any]:
+            logger.debug(f"AnalystEngine ignoring event {event.event_type} as it's not a configured trigger or has no payload.")
+	
+    def _analyze_event(self, event_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Analyzes an event payload and extracts insights.
         
@@ -262,8 +233,8 @@ class AnalystEngine(BaseEngine):
             Dict[str, Any]: Analysis results
         """
         analysis = {
-            "timestamp": event_payload.get("timestamp", "unknown"),
-            "event_type": event_payload.get("event_type", "general"),
+            "timestamp": event_data.get("timestamp", "unknown"),
+            "event_type": event_data.get("event_type", "general"),
             "metrics": {},
             "insights": [],
             "focus_area": self.analysis_focus
@@ -276,12 +247,12 @@ class AnalystEngine(BaseEngine):
             elif metric == "response_time":
                 analysis["metrics"][metric] = "immediate"  # Placeholder
             elif metric == "sentiment_score":
-                analysis["metrics"][metric] = self._analyze_sentiment(event_payload)
+                analysis["metrics"][metric] = self._analyze_sentiment(event_data)
             elif metric == "complexity_level":
-                analysis["metrics"][metric] = self._analyze_complexity(event_payload)
+                analysis["metrics"][metric] = self._analyze_complexity(event_data)
         
         # Generate insights based on the analysis focus
-        analysis["insights"] = self._generate_insights(event_payload, analysis["metrics"])
+        analysis["insights"] = self._generate_insights(event_data, analysis["metrics"])
         
         return analysis
 

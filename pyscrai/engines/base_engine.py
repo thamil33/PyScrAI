@@ -12,6 +12,8 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Callable
 
 import httpx
+from pyscrai.core.models import Event
+from sqlalchemy.orm import Session
 
 # Default API base URL - can be overridden by environment variable
 PYSCRAI_API_BASE_URL = os.getenv("PYSCRAI_API_BASE_URL", "http://localhost:8000/api/v1")
@@ -122,6 +124,14 @@ class BaseEngine(ABC):
         """
         Process an event payload. Must be implemented by subclasses.
         This is the primary method for engine interaction with incoming events.
+        """
+        pass
+
+    @abstractmethod
+    async def handle_delivered_event(self, event: Event, scenario_context: Dict[str, Any], db_session: Session) -> None:
+        """
+        Handles an event delivered by the EngineManager.
+        Subclasses must implement this method to react to relevant events.
         """
         pass
 
