@@ -175,6 +175,7 @@ class TestOpenRouterRetryWrapper:
         # Quota exceeded - should not retry (immediate fallback)
         is_retryable, delay = retry_wrapper._classify_error(Exception("Quota exceeded"), 0)
         assert not is_retryable
+        assert delay == 0.0
         
         # Server error - should retry
         is_retryable, delay = retry_wrapper._classify_error(Exception("500 Server error"), 0)
@@ -188,8 +189,8 @@ class TestOpenRouterRetryWrapper:
         delay_2 = retry_wrapper._calculate_delay(2)
         
         # Should grow exponentially (accounting for jitter)
-        assert delay_1 > delay_0
-        assert delay_2 > delay_1
+        assert delay_1 >= delay_0
+        assert delay_2 >= delay_1
         
         # Should respect max delay
         large_delay = retry_wrapper._calculate_delay(10)

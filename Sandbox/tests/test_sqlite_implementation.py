@@ -215,7 +215,11 @@ def test_sqlite_json_schema_support():
         perf_state = SimulationState(
             simulation_id="performance-test",
             timestamp=datetime.now(),
-            agents={},
+            agents={
+                "agent_0": AgentState(name="agent_0", agent_type="test", total_messages=167),
+                "agent_1": AgentState(name="agent_1", agent_type="test", total_messages=167),
+                "agent_2": AgentState(name="agent_2", agent_type="test", total_messages=166),
+            },
             conversation_log=large_log,
             shared_context={},
             metadata={}
@@ -232,6 +236,9 @@ def test_sqlite_json_schema_support():
         
         assert len(loaded_perf_state.conversation_log) == 500
         assert loaded_perf_state.conversation_log[499].metadata["test_iteration"] == 499
+        assert loaded_perf_state.agents["agent_0"].total_messages == 167
+        assert loaded_perf_state.agents["agent_1"].total_messages == 167
+        assert loaded_perf_state.agents["agent_2"].total_messages == 166
         print(f"✓ Performance test: Save {save_time:.3f}s, Load {load_time:.3f}s for 500 complex messages")
         
         print("\n🎉 All SQLite JSON schema tests passed!")

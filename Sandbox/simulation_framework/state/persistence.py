@@ -4,9 +4,26 @@ import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, MutableMapping
 
 from .simulation_state import SimulationState
+
+
+def deep_update(
+    source: MutableMapping, overrides: MutableMapping
+) -> MutableMapping:
+    """
+    Update a nested dictionary or similar mapping.
+    Modifies 'source' in place.
+    """
+    for key, value in overrides.items():
+        if isinstance(value, MutableMapping) and isinstance(
+            source.get(key), MutableMapping
+        ):
+            source[key] = deep_update(source.get(key, {}), value)
+        else:
+            source[key] = value
+    return source
 
 
 class StatePersistence(ABC):
@@ -210,25 +227,15 @@ class SQLitePersistence(StatePersistence):
         if not current_state:
             raise ValueError(f"Simulation {simulation_id} not found")
         
-        # Apply updates
+        # Apply updates using deep_update
         state_dict = current_state.model_dump()
-        for key, value in updates.items():
-            if key in state_dict:
-                if isinstance(state_dict[key], dict) and isinstance(value, dict):
-                    # Merge dictionaries
-                    state_dict[key].update(value)
-                else:
-                    # Direct replacement
-                    state_dict[key] = value
-            else:
-                # Add new key
-                state_dict[key] = value
+        updated_dict = deep_update(state_dict, updates)
         
         # Update timestamp
-        state_dict['timestamp'] = datetime.now()
+        updated_dict['timestamp'] = datetime.now()
         
         # Create updated state and save
-        updated_state = SimulationState.model_validate(state_dict)
+        updated_state = SimulationState.model_validate(updated_dict)
         self.save_state(updated_state)
     
     def delete_simulation(self, simulation_id: str) -> None:
@@ -411,19 +418,12 @@ class JSONPersistence(StatePersistence):
         if not current_state:
             raise ValueError(f"Simulation {simulation_id} not found")
         
-        # Apply updates
+        # Apply updates using deep_update
         state_dict = current_state.model_dump()
-        for key, value in updates.items():
-            if key in state_dict:
-                if isinstance(state_dict[key], dict) and isinstance(value, dict):
-                    state_dict[key].update(value)
-                else:
-                    state_dict[key] = value
-            else:
-                state_dict[key] = value
+        updated_dict = deep_update(state_dict, updates)
         
         # Create updated state and save
-        updated_state = SimulationState.model_validate(state_dict)
+        updated_state = SimulationState.model_validate(updated_dict)
         self.save_state(updated_state)
     
     def delete_simulation(self, simulation_id: str) -> None:
