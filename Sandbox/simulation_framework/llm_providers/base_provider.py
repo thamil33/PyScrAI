@@ -3,7 +3,7 @@ Base LLM provider abstraction for the simulation framework.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, AsyncIterator
 from pydantic import BaseModel
 import asyncio
 

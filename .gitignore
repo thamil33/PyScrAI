@@ -21,7 +21,6 @@ var/
 *.egg
 venv/
 ENV/
-.vscode
 
 # JavaScript/Node.js
 node_modules/
@@ -109,3 +108,4 @@ htmlcov/
 
 # MyPy
 .mypy_cache/
+_resources
