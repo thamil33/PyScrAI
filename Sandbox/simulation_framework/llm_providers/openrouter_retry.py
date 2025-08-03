@@ -378,7 +378,7 @@ class OpenRouterRetryWrapper(LLMProvider):
             return [{"id": model.id, "object": model.object} for model in response.data]
         except Exception as e:
             logger.error(f"Failed to list models: {e}")
-            return []
+            raise LLMProviderConnectionError(f"Failed to list models: {e}") from e
 
     async def health_check(self) -> bool:
         """Check provider health."""
@@ -402,4 +402,3 @@ class OpenRouterRetryWrapper(LLMProvider):
             },
             "fallback_models": self.fallback_models
         }
-
