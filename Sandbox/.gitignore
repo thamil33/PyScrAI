@@ -21,6 +21,7 @@ var/
 *.egg
 venv/
 ENV/
+.vscode
 
 # JavaScript/Node.js
 node_modules/
