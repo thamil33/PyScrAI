@@ -1,0 +1,50 @@
+# Core LangGraph and LangChain dependencies
+langgraph>=0.1.0
+langchain>=0.1.0
+langchain-openai>=0.1.0
+langchain-community>=0.1.0
+
+# OpenAI API compatibility (used by both OpenRouter and LM Studio)
+openai>=1.0.0
+
+# HTTP client for API calls
+requests>=2.31.0
+httpx>=0.25.0
+
+# Data validation and serialization
+pydantic>=2.0.0
+
+# Environment variable management
+python-dotenv>=1.0.0
+
+# Async support
+aiofiles>=23.0.0
+
+# JSON handling and utilities
+orjson>=3.9.0
+
+# Logging and monitoring
+structlog>=23.0.0
+
+# CLI interface (for future HIL implementation)
+click>=8.1.0
+rich>=13.0.0
+
+# Optional web interface dependencies
+fastapi>=0.104.0
+uvicorn>=0.24.0
+
+# Development dependencies
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-mock>=3.11.0
+black>=23.0.0
+ruff>=0.1.0
+pre-commit>=3.5.0
+
+# Type checking
+mypy>=1.7.0
+types-requests>=2.31.0
+
+# Testing utilities
+hypothesis>=6.88.0
